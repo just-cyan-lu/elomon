@@ -48,11 +48,11 @@ func _spawn_units() -> void:
 		_all_units.append(unit)
 
 func _connect_signals() -> void:
-	ctb_system.connect("unit_ready", _on_unit_ready)
-	grid_manager.connect("cell_clicked", _on_cell_clicked)
-	action_menu.connect("move_pressed", _on_move_pressed)
-	action_menu.connect("skill_pressed", _on_skill_pressed)
-	action_menu.connect("wait_pressed", _on_wait_pressed)
+	ctb_system.unit_ready.connect(_on_unit_ready)
+	grid_manager.cell_clicked.connect(_on_cell_clicked)
+	action_menu.move_pressed.connect(_on_move_pressed)
+	action_menu.skill_pressed.connect(_on_skill_pressed)
+	action_menu.wait_pressed.connect(_on_wait_pressed)
 
 # ── CTB 流程 ────────────────────────────────────────────────────
 
