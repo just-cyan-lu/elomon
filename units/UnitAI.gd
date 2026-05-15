@@ -3,6 +3,10 @@ extends RefCounted   # 不是节点，是纯逻辑类
 
 # 执行 AI 行动，返回值用 await 等待（内部有延迟）
 static func run(enemy: Unit, grid_manager: GridManager, all_units: Array[Unit]) -> void:
+	if enemy.is_broken:
+		enemy.recover_from_break()
+		return
+
 	# 1. 找最近的我方单位
 	var target := _find_nearest_ally(enemy, all_units)
 	if target == null:
@@ -39,6 +43,8 @@ static func _find_nearest_ally(enemy: Unit, all_units: Array[Unit]) -> Unit:
 		if unit.is_ally() and unit.is_alive():
 			var dist: int = abs(unit.grid_pos.x - enemy.grid_pos.x) \
 					  + abs(unit.grid_pos.y - enemy.grid_pos.y)
+			if unit.data.unit_type == Enums.UnitType.PLAYER:
+				dist -= 2
 			if dist < min_dist:
 				min_dist = dist
 				nearest = unit

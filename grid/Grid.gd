@@ -8,8 +8,11 @@ const COLOR_NORMAL  := Color(0.15, 0.15, 0.15)
 const COLOR_MOVE    := Color(0.2, 0.5, 1.0, 0.6)
 const COLOR_ATTACK  := Color(1.0, 0.2, 0.2, 0.6)
 const COLOR_CURSOR  := Color(1.0, 1.0, 0.0, 0.5) # 黄色，鼠标悬停
+const COLOR_GRASS   := Color(0.1, 0.38, 0.16)
+const COLOR_BURNING := Color(0.9, 0.28, 0.08)
 
 var _grid: Array = []
+var _terrain: Array = []
 var _cell_nodes: Array = []   # 存 ColorRect 节点，方便改颜色
 var _highlighted: Array = []  # 当前高亮的格子列表
 
@@ -20,14 +23,18 @@ func _ready() -> void:
 # 初始化二维数组
 func _init_grid() -> void:
 	_grid.clear()
+	_terrain.clear()
 	_cell_nodes.clear()
 	for row in Enums.GRID_ROWS:
 		var row_arr = []
+		var terrain_row = []
 		var node_row = []
 		for col in Enums.GRID_COLS:
 			row_arr.append(null)
+			terrain_row.append(Enums.TerrainType.NORMAL)
 			node_row.append(null)
 		_grid.append(row_arr)
+		_terrain.append(terrain_row)
 		_cell_nodes.append(node_row)
 
 # 用 ColorRect 绘制格子（有美术后替换为 TileMap）
@@ -42,7 +49,7 @@ func _draw_cells() -> void:
 				col * Enums.CELL_SIZE,
 				row * Enums.CELL_SIZE
 			)
-			rect.color = COLOR_NORMAL
+			rect.color = _get_terrain_color(Vector2i(col, row))
 			add_child(rect)
 			_cell_nodes[row][col] = rect
 	print("格子画完，总数: ", Enums.GRID_ROWS * Enums.GRID_COLS)
@@ -75,6 +82,33 @@ func is_occupied(pos: Vector2i) -> bool:
 func get_unit_at(pos: Vector2i) -> Unit:
 	if not is_valid(pos): return null
 	return _grid[pos.y][pos.x]
+
+func get_terrain(pos: Vector2i) -> int:
+	if not is_valid(pos):
+		return Enums.TerrainType.NORMAL
+	return _terrain[pos.y][pos.x]
+
+func set_terrain(pos: Vector2i, terrain_type: int) -> void:
+	if not is_valid(pos):
+		return
+	_terrain[pos.y][pos.x] = terrain_type
+	_cell_nodes[pos.y][pos.x].color = _get_terrain_color(pos)
+
+func setup_mvp_terrain() -> void:
+	for y in range(7, 11):
+		for x in range(7, 11):
+			set_terrain(Vector2i(x, y), Enums.TerrainType.GRASS)
+
+func _get_terrain_color(pos: Vector2i) -> Color:
+	if not is_valid(pos):
+		return COLOR_NORMAL
+	match _terrain[pos.y][pos.x]:
+		Enums.TerrainType.GRASS:
+			return COLOR_GRASS
+		Enums.TerrainType.BURNING:
+			return COLOR_BURNING
+		_:
+			return COLOR_NORMAL
 
 # 放置单位到格子
 func place_unit(unit: Node, pos: Vector2i) -> void:
@@ -148,7 +182,7 @@ func highlight_cells(cells: Array[Vector2i], color: Color) -> void:
 func clear_highlights() -> void:
 	for pos in _highlighted:
 		if is_valid(pos):
-			_cell_nodes[pos.y][pos.x].color = COLOR_NORMAL
+			_cell_nodes[pos.y][pos.x].color = _get_terrain_color(pos)
 	_highlighted.clear()
 
 # 鼠标点击处理

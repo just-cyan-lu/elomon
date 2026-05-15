@@ -10,3 +10,5 @@ extends Resource
 @export var move_range: int = 5     # 最大移动格数
 @export var color: Color = Color.GRAY  # 占位色块颜色，有美术后替换
 @export var skills: Array[Resource] = []  # 携带的 SkillData 列表
+@export var element_type: Enums.ElementType = Enums.ElementType.NONE
+@export var max_stability: int = 0   # 大于 0 时显示稳定度，可被 Break/捕捉

@@ -13,6 +13,21 @@ enum UnitType {
 	WILD_POKEMON     # 野生宝可梦
 }
 
+# 元素属性，MVP 先保留最小集合
+enum ElementType {
+	NONE,
+	FIRE,
+	WATER,
+	GRASS
+}
+
+# 地形类型，MVP 用于验证站位与技能互动
+enum TerrainType {
+	NORMAL,
+	GRASS,
+	BURNING
+}
+
 # 战斗整体状态（Battle.gd 用）
 enum BattleState {
 	WAITING,       # CTB 跑条推进中，等待下一个单位行动力满
@@ -26,7 +41,9 @@ enum BattleState {
 enum ActionState {
 	IDLE,              # 无操作，显示行动菜单
 	SELECTING_MOVE,    # 已选"移动"，等待点击目标格
-	SELECTING_SKILL    # 已选"技能"，等待点击目标格
+	SELECTING_SKILL,   # 已选"技能"，等待点击目标格
+	SELECTING_CARD,    # 已选指令卡，等待点击目标格
+	SELECTING_SUMMON   # 已选召唤，等待点击目标格
 }
 
 # 格子常量
