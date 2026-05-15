@@ -7,13 +7,13 @@ enum UnitType {
 	ALLY,            # 我方盟友训练师
 	ALLY_POKEMON,    # 我方盟友训练师的宝可梦
 	ENEMY,           # 敌方
-	ENEMY_POKEMON,   # 地方宝可梦
+	ENEMY_POKEMON,   # 敌方宝可梦
 	NEUTRAL,         # 中立训练师
 	NEUTRAL_POKEMON, # 中立训练师的宝可梦
 	WILD_POKEMON     # 野生宝可梦
 }
 
-# 战斗整体状态（BattleManager 用）
+# 战斗整体状态（Battle.gd 用）
 enum BattleState {
 	WAITING,       # CTB 跑条推进中，等待下一个单位行动力满
 	PLAYER_TURN,   # 等待玩家输入

@@ -5,6 +5,8 @@
 
 内部数组索引为 `_grid[row][col]`，即 `_grid[y][x]`。
 
+当前网格大小为 20×20，`CELL_SIZE=32`。项目视口为 `640×360`，网格总高度大于视口高度，后续用相机滚动解决显示范围问题。
+
 ## AP 经济
 单位行动结束后不将 AP 归零，而是减去 `MAX_AP (100)`，溢出部分保留。速度快的单位因此长期保持先手优势。
 
@@ -12,10 +14,10 @@
 每回合开始时重置为 `false`，使用技能后设为 `true`，防止同一回合内二次施法。
 
 ## 场景节点名称
-`BattleManager` 通过 `@onready` 路径引用子节点：
+`Battle.gd` 通过 `@onready` 路径引用子节点：
 
 ```
-$Grid → GridManager
+$Grid → GridManager（脚本文件为 grid/Grid.gd）
 $CTBSystem → CTBSystem
 $UI/CTBBar → CTBBar
 $UI/ActionMenu → ActionMenu
@@ -40,3 +42,6 @@ node.connect("signal_name", self, "callback")
 
 ## 资源文件
 单位和技能数据是 Godot `.tres` 文件，请通过 Godot 编辑器的 Inspector 修改，不要手动编辑其文本格式。
+
+## 文档同步
+`AGENTS.md` 和 `CLAUDE.md` 都指向本目录下的架构与约定文档。修改核心系统、节点命名、项目设置、运行方式或数据约定时，需要同步更新这三处说明。

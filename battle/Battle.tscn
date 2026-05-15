@@ -1,6 +1,6 @@
 [gd_scene format=3 uid="uid://dkp64tovehodb"]
 
-[ext_resource type="Script" uid="uid://c5hcevnrbr5xn" path="res://battle/BattleManager.gd" id="1"]
+[ext_resource type="Script" uid="uid://c5hcevnrbr5xn" path="res://battle/Battle.gd" id="1"]
 [ext_resource type="PackedScene" uid="uid://cfoudlp20pibi" path="res://grid/Grid.tscn" id="2"]
 [ext_resource type="PackedScene" uid="uid://b5wov6ie2l0pb" path="res://battle/ctb/CTBSystem.tscn" id="3_dgjnm"]
 [ext_resource type="PackedScene" uid="uid://def3lg2d0m2bc" path="res://battle/ctb/CTBBar.tscn" id="4_wuq8c"]

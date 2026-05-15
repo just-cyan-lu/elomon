@@ -78,7 +78,8 @@ func is_alive() -> bool:
 	return current_hp > 0
 
 func is_enemy() -> bool:
-	return data.unit_type == Enums.UnitType.ENEMY
+	return data.unit_type == Enums.UnitType.ENEMY \
+		or data.unit_type == Enums.UnitType.ENEMY_POKEMON
 
 func is_ally() -> bool:
 	return data.unit_type == Enums.UnitType.PLAYER \
