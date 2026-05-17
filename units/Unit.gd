@@ -17,10 +17,13 @@ var has_acted: bool = false   # 本回合是否已使用技能（每回合重置
 var has_moved: bool = false   # 本回合是否已移动（每回合重置）
 var shield: int = 0
 var current_stability: int = 0
-var is_broken: bool = false
+var stability_depleted: bool = false
 var capture_ready: bool = false
 var power_boost_next_attack: bool = false
 var bonus_move_range: int = 0
+var last_attacker: Unit = null
+var ai_turn_count: int = 0
+var pending_charge_cells: Array[Vector2i] = []
 
 # 视觉节点（代码动态创建）
 var _body: ColorRect
@@ -93,8 +96,18 @@ func consume_bonus_move() -> void:
 	bonus_move_range = 0
 	_update_label()
 
+func set_pending_charge_cells(cells: Array[Vector2i]) -> void:
+	pending_charge_cells = cells.duplicate()
+	_update_label()
+	emit_signal("status_changed", self)
+
+func clear_pending_charge_cells() -> void:
+	pending_charge_cells.clear()
+	_update_label()
+	emit_signal("status_changed", self)
+
 # 受到伤害
-func take_damage(raw_damage: int) -> int:
+func take_damage(raw_damage: int, attacker: Unit = null) -> int:
 	var actual: int = max(raw_damage - data.defense, 1)
 	if shield > 0:
 		var blocked: int = min(shield, actual)
@@ -104,6 +117,8 @@ func take_damage(raw_damage: int) -> int:
 		_update_label()
 		_update_hp_bar()
 		return 0
+	if attacker != null and is_instance_valid(attacker):
+		last_attacker = attacker
 	current_hp = max(current_hp - actual, 0)
 	emit_signal("hp_changed", current_hp, data.max_hp)
 	_update_hp_bar()
@@ -123,26 +138,17 @@ func add_shield(amount: int) -> void:
 	_update_label()
 
 func damage_stability(amount: int) -> void:
-	if data.max_stability <= 0 or is_broken:
+	if data.max_stability <= 0 or stability_depleted:
 		return
 	current_stability = max(current_stability - amount, 0)
 	if current_stability <= 0:
-		is_broken = true
-		current_ap = min(current_ap, 0.0)
-	_update_label()
-	emit_signal("status_changed", self)
-
-func recover_from_break() -> void:
-	if not is_broken:
-		return
-	is_broken = false
-	current_stability = data.max_stability
+		stability_depleted = true
 	_update_label()
 	emit_signal("status_changed", self)
 
 func is_capturable() -> bool:
 	return data.unit_type == Enums.UnitType.WILD_POKEMON \
-		and is_broken \
+		and stability_depleted \
 		and current_hp <= int(data.max_hp * 0.4)
 
 func set_capture_ready(value: bool) -> void:
@@ -158,16 +164,18 @@ func _update_label() -> void:
 		return
 	var parts: Array[String] = [data.unit_name, str(current_hp) + "/" + str(data.max_hp)]
 	if data.max_stability > 0:
-		var stability_text := "B" if is_broken else str(current_stability)
+		var stability_text := "0" if stability_depleted else str(current_stability)
 		parts.append("稳" + stability_text)
 	if shield > 0:
 		parts.append("盾" + str(shield))
 	if capture_ready:
-		parts.append("可捕")
+		parts.append("可封印")
 	if power_boost_next_attack:
 		parts.append("强")
 	if bonus_move_range > 0:
 		parts.append("移+" + str(bonus_move_range))
+	if not pending_charge_cells.is_empty():
+		parts.append("蓄力")
 	_label.text = _join_strings(parts, "\n")
 
 func _update_hp_bar() -> void:

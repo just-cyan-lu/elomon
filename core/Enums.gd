@@ -42,6 +42,7 @@ enum ActionState {
 	IDLE,              # 无操作，显示行动菜单
 	SELECTING_MOVE,    # 已选"移动"，等待点击目标格
 	SELECTING_SKILL,   # 已选"技能"，等待点击目标格
+	CONFIRMING_SKILL,  # 已选技能目标，等待确认攻击
 	SELECTING_CARD,    # 已选指令卡，等待点击目标格
 	SELECTING_SUMMON   # 已选召唤，等待点击目标格
 }

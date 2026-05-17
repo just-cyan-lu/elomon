@@ -3,13 +3,22 @@ extends RefCounted   # 不是节点，是纯逻辑类
 
 # 执行 AI 行动，返回值用 await 等待（内部有延迟）
 static func run(enemy: Unit, grid_manager: GridManager, all_units: Array[Unit]) -> void:
-	if enemy.is_broken:
-		enemy.recover_from_break()
+	if not enemy.pending_charge_cells.is_empty():
+		await Engine.get_main_loop().create_timer(0.4).timeout
+		_resolve_charge_attack(enemy, grid_manager, all_units)
 		return
 
-	# 1. 找最近的我方单位
-	var target := _find_nearest_ally(enemy, all_units)
+	# 1. 优先反击上一次攻击自己的单位，否则找最近的我方单位
+	var target := _find_target(enemy, all_units)
 	if target == null:
+		return
+
+	enemy.ai_turn_count += 1
+	if enemy.data.can_charge_attack \
+	and enemy.ai_turn_count % enemy.data.charge_interval == 0 \
+	and _distance(enemy.grid_pos, target.grid_pos) <= enemy.data.charge_range:
+		await Engine.get_main_loop().create_timer(0.3).timeout
+		_start_charge_attack(enemy, grid_manager, target)
 		return
 	
 	# 稍作延迟，模拟"思考"，同时让玩家看清楚发生了什么
@@ -33,9 +42,37 @@ static func run(enemy: Unit, grid_manager: GridManager, all_units: Array[Unit]) 
 	
 	if target.grid_pos in attack_cells:
 		var damage := skill.damage + enemy.data.attack
-		target.take_damage(damage)
+		target.take_damage(damage, enemy)
 
-# 找最近的我方单位（曼哈顿距离）
+static func _start_charge_attack(enemy: Unit, grid_manager: GridManager, target: Unit) -> void:
+	enemy.set_pending_charge_cells(_get_charge_cells(target.grid_pos, enemy.data.charge_radius, grid_manager))
+	grid_manager.set_warning_cells(enemy.pending_charge_cells)
+
+static func _resolve_charge_attack(enemy: Unit, grid_manager: GridManager, all_units: Array[Unit]) -> void:
+	for unit in all_units:
+		if unit.is_ally() and unit.is_alive() and unit.grid_pos in enemy.pending_charge_cells:
+			unit.take_damage(enemy.data.charge_damage, enemy)
+	enemy.clear_pending_charge_cells()
+	grid_manager.clear_warning_cells()
+
+static func _get_charge_cells(center: Vector2i, radius: int, grid_manager: GridManager) -> Array[Vector2i]:
+	var result: Array[Vector2i] = []
+	for dy in range(-radius, radius + 1):
+		for dx in range(-radius, radius + 1):
+			var pos := center + Vector2i(dx, dy)
+			if abs(dx) + abs(dy) <= radius and grid_manager.is_valid(pos):
+				result.append(pos)
+	return result
+
+# 优先反击上一次攻击自己的单位；没有可用仇恨目标时，找最近的我方单位。
+static func _find_target(enemy: Unit, all_units: Array[Unit]) -> Unit:
+	if enemy.last_attacker != null \
+	and is_instance_valid(enemy.last_attacker) \
+	and enemy.last_attacker.is_alive() \
+	and enemy.last_attacker.is_ally():
+		return enemy.last_attacker
+	return _find_nearest_ally(enemy, all_units)
+
 static func _find_nearest_ally(enemy: Unit, all_units: Array[Unit]) -> Unit:
 	var nearest: Unit = null
 	var min_dist := INF
@@ -43,12 +80,13 @@ static func _find_nearest_ally(enemy: Unit, all_units: Array[Unit]) -> Unit:
 		if unit.is_ally() and unit.is_alive():
 			var dist: int = abs(unit.grid_pos.x - enemy.grid_pos.x) \
 					  + abs(unit.grid_pos.y - enemy.grid_pos.y)
-			if unit.data.unit_type == Enums.UnitType.PLAYER:
-				dist -= 2
 			if dist < min_dist:
 				min_dist = dist
 				nearest = unit
 	return nearest
+
+static func _distance(a: Vector2i, b: Vector2i) -> int:
+	return abs(a.x - b.x) + abs(a.y - b.y)
 
 # 在可移动格子里找最靠近目标的一格
 static func _find_best_move(move_cells: Array[Vector2i], target: Vector2i, current: Vector2i) -> Vector2i:
