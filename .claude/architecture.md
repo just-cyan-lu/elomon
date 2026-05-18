@@ -9,7 +9,7 @@
 
 1. **生成单位** — MVP 版本在 `_spawn_units()` 中动态创建 `UnitData` / `SkillData`，实例化 `Unit.tscn`，并将单位注册到 `GridManager`、`CTBSystem` 和 `CTBBar`。旧 `.tres` 数据仍保留，但当前样板战斗不依赖它们。
 2. **CTB 推进** — `CTBSystem._process()` 每帧为各单位累加 AP。某单位 AP 达到 100 时发出 `unit_ready` 信号，`CTBSystem` 自身暂停，`Battle.gd` 的 `_on_unit_ready()` 响应。恢复跑条时如果已有单位满 AP，会立刻触发该单位行动，避免被卡牌加满 AP 的单位被跳过。
-3. **玩家回合** — `Battle.gd` 显示 `ActionMenu`。玩家选择移动 / 技能 / 指令卡 / 召唤 / 回收 / 等待，驱动 `ActionState` 状态机。格子点击通过 `GridManager` 的 `cell_clicked` 信号路由。空闲时点击敌人会预览敌方移动范围和最远攻击威胁；选择移动时会同时预览移动后最远技能覆盖范围。选择技能后第一次点目标只显示伤害预览，确认后才结算攻击并自动结束回合。
+3. **玩家回合** — `Battle.gd` 显示 `ActionMenu`。玩家选择移动 / 技能 / 指令卡 / 召唤 / 回收 / 等待，驱动 `ActionState` 状态机。格子点击通过 `GridManager` 的 `cell_clicked` 信号路由。空闲时点击敌人会预览敌方移动范围和最远攻击威胁；选择移动时会同时预览移动后最远技能覆盖范围。移动后若尚未使用技能或支援操作，可按 `Esc` 撤回到回合开始位置。选择技能后第一次点目标只显示伤害预览，确认后才结算攻击并自动结束回合。
 4. **敌方回合** — `UnitAI.run()`（`RefCounted` 类上的静态方法）通过 `await` 延迟执行，便于玩家观察，结束后调用 `_end_turn()`。
 5. **结束回合** — `_end_turn()` 从当前单位 AP 中扣除 `MAX_AP`，清除高亮和状态，调用 `CTBSystem.resume()` 重启计时。MVP 中 AP 只负责行动顺序，不再参与移动和技能成本。
 
@@ -28,6 +28,7 @@
 - `get_move_range(origin, move_range)` — BFS，跳过已有单位的格子
 - `get_attack_range(origin, attack_range)` — 曼哈顿距离，含有单位的格子也包括在内
 - `highlight_cells()` / `clear_highlights()` — 修改 `ColorRect` 节点颜色；`highlight_cells()` 可选择不清除已有高亮，用于同时显示移动范围和攻击威胁
+- `set_threat_cells()` / `clear_threat_cells()` — 显示敌方全体威胁覆盖层；普通高亮清除后要恢复该覆盖层
 - `setup_mvp_terrain()` / `set_terrain()` / `get_terrain()` — 初始化与读写 MVP 地形
 - `_input()` — 将鼠标点击转换为 `cell_clicked(grid_pos)` 信号
 
@@ -48,7 +49,7 @@
 ## UI（`ui/`）
 - `ActionMenu.gd` — 悬浮在当前行动单位旁，发出移动、技能、指令卡、召唤、回收、等待等信号。MVP 中按钮由脚本补充创建；菜单会压缩按钮高度并限制在视口内，避免长菜单超出屏幕。菜单按钮会根据当前单位显示真实技能名和卡牌消耗，鼠标悬停时通过 `option_hovered(description)` 让 `Battle.gd` 更新顶部说明。
 - `Battle.gd` 动态创建轻量伤害预览面板。预览面板显示技能名、命中目标、HP 变化、伤害、稳定度变化和总伤害；范围技能会列出所有受影响敌人，并在地图上显示预览数字。
-- `CTBBar.gd` — 提供两种可切换视图：速度跑条视图和行动轴视图。速度跑条视图中每个单位对应一组标签+进度条，每帧从 `unit.current_ap` 更新显示；CTB 暂停时会显示 `WAIT`，当前可行动单位显示 `READY` 并高亮进度条。行动轴视图会预测未来数次行动顺序，速度快的单位允许重复出现。
+- `CTBBar.gd` — 提供两种可切换视图：速度跑条视图和行动轴视图。速度跑条视图中每个单位对应一组标签+进度条，每帧从 `unit.current_ap` 更新显示；CTB 暂停时会显示 `WAIT`，当前可行动单位显示 `READY` 并高亮进度条，下一位行动单位显示 `NEXT`。行动轴视图会预测未来数次行动顺序，速度快的单位允许重复出现。
 - `DamageNumber.gd` / `DamageNumber.tscn` — 目前仍是占位脚本和场景，尚未接入伤害表现。
 
 ## 与 Notion v1.0 的差异

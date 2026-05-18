@@ -35,12 +35,17 @@ var _selected_skill_index: int = 0
 var _sync_label: Label
 var _sync_feedback_label: Label
 var _tip_label: Label
+var _enemy_threat_button: Button
 var _preview_panel: PanelContainer
 var _preview_label: Label
 var _card_cooldowns := {}
 var _selected_skill_target: Vector2i = Vector2i(-1, -1)
 var _skill_preview_entries: Array[Dictionary] = []
 var _skill_preview_markers: Array[Label] = []
+var _enemy_threat_visible: bool = false
+var _turn_start_pos: Vector2i = Vector2i(-1, -1)
+var _turn_start_snapshot := {}
+var _turn_has_support_action: bool = false
 
 # 缓存当前高亮的格子（用于点击判断）
 var _move_cells: Array[Vector2i] = []
@@ -85,6 +90,14 @@ func _build_mvp_ui() -> void:
 	_tip_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_tip_label.add_theme_font_size_override("font_size", 8)
 	$UI.add_child(_tip_label)
+
+	_enemy_threat_button = Button.new()
+	_enemy_threat_button.position = Vector2(548, 34)
+	_enemy_threat_button.size = Vector2(86, 20)
+	_enemy_threat_button.text = "敌方范围"
+	_enemy_threat_button.add_theme_font_size_override("font_size", 8)
+	_enemy_threat_button.pressed.connect(_toggle_enemy_threat)
+	$UI.add_child(_enemy_threat_button)
 
 	_preview_panel = PanelContainer.new()
 	_preview_panel.position = Vector2(418, 126)
@@ -228,6 +241,8 @@ func _on_unit_ready(unit: Unit) -> void:
 	_active_unit = unit
 	_active_unit.has_acted = false
 	_active_unit.has_moved = false
+	_capture_turn_start_state(_active_unit)
+	_turn_has_support_action = false
 	_tick_card_cooldowns()
 	_gain_sync(max(1, 6 - _active_pokemon_count() * 2), "自然回复")
 	_apply_tile_effect(_active_unit)
@@ -258,17 +273,24 @@ func _on_unit_ready(unit: Unit) -> void:
 func _end_turn() -> void:
 	if _battle_state == Enums.BattleState.BATTLE_OVER:
 		return
+	if _battle_state == Enums.BattleState.PLAYER_TURN \
+	and _active_unit and is_instance_valid(_active_unit) and _active_unit.is_alive():
+		_apply_tile_effect(_active_unit)
+		if _battle_state == Enums.BattleState.BATTLE_OVER:
+			return
 	if _active_unit and is_instance_valid(_active_unit):
 		_active_unit.consume_ap(Enums.MAX_AP)
 	_action_state = Enums.ActionState.IDLE
 	_selected_card_id = ""
 	_selected_skill_index = 0
 	_selected_skill_target = Vector2i(-1, -1)
+	_turn_has_support_action = false
 	_move_cells.clear()
 	_attack_cells.clear()
 	_card_cells.clear()
 	_clear_skill_preview()
 	grid_manager.clear_highlights()
+	_update_enemy_threat_overlay()
 	action_menu.hide_menu()
 	_battle_state = Enums.BattleState.WAITING
 	_update_sync_ui()
@@ -311,6 +333,20 @@ func _on_wait_pressed() -> void:
 
 func _cancel_current_selection() -> void:
 	if _battle_state != Enums.BattleState.PLAYER_TURN:
+		return
+	if _active_unit != null \
+	and is_instance_valid(_active_unit) \
+	and _active_unit.has_moved \
+	and not _active_unit.has_acted:
+		if _turn_has_support_action:
+			if _action_state != Enums.ActionState.IDLE:
+				_cancel_to_action_menu("已取消选择。")
+			else:
+				_show_tip("已经使用过卡牌、召唤或回收，本回合不能撤回移动。")
+			return
+		if _action_state == Enums.ActionState.CONFIRMING_SKILL:
+			_clear_skill_preview()
+		_undo_active_unit_move()
 		return
 	if _action_state == Enums.ActionState.IDLE:
 		return
@@ -382,9 +418,9 @@ func _on_cell_clicked(grid_pos: Vector2i) -> void:
 				_active_unit.grid_pos = grid_pos
 				_active_unit.has_moved = true
 				_active_unit.consume_bonus_move()
-				_apply_tile_effect(_active_unit)
 				_action_state = Enums.ActionState.IDLE
 				grid_manager.clear_highlights()
+				_update_enemy_threat_overlay()
 				_show_action_menu()
 		
 		Enums.ActionState.SELECTING_SKILL:
@@ -538,6 +574,7 @@ func _resolve_recall(grid_pos: Vector2i) -> void:
 		_show_tip("同步率不足，回收需要 %d。" % RECALL_COST)
 		return
 	_sync_points -= RECALL_COST
+	_turn_has_support_action = true
 	if target.data.unit_name == "藤藤兽":
 		_reserve_grass_data = target.data
 	var target_name := target.data.unit_name
@@ -546,6 +583,7 @@ func _resolve_recall(grid_pos: Vector2i) -> void:
 
 func _summon_grass(grid_pos: Vector2i) -> void:
 	_sync_points -= SUMMON_COST
+	_turn_has_support_action = true
 	var unit_scene := preload("res://units/Unit.tscn")
 	var unit := _spawn_unit(unit_scene, _reserve_grass_data, grid_pos)
 	ctb_system.add_unit(unit)
@@ -553,6 +591,7 @@ func _summon_grass(grid_pos: Vector2i) -> void:
 	unit.current_ap = 40
 	_action_state = Enums.ActionState.IDLE
 	grid_manager.clear_highlights()
+	_update_enemy_threat_overlay()
 	_show_action_menu()
 	_update_sync_ui()
 	_show_tip("藤藤兽入场。同步率回复会因为多一只宝可梦而变慢。")
@@ -586,6 +625,7 @@ func _pay_card(card_id: String) -> void:
 	var card_def = CARD_DEFS[card_id]
 	_sync_points -= card_def["cost"]
 	_card_cooldowns[card_id] = card_def["cooldown"]
+	_turn_has_support_action = true
 	_update_sync_ui()
 
 func _tick_card_cooldowns() -> void:
@@ -651,6 +691,78 @@ func _join_strings(parts: Array, delimiter: String) -> String:
 func _show_tip(text: String) -> void:
 	if is_instance_valid(_tip_label):
 		_tip_label.text = text
+
+func _capture_turn_start_state(unit: Unit) -> void:
+	if unit == null or not is_instance_valid(unit):
+		_turn_start_pos = Vector2i(-1, -1)
+		_turn_start_snapshot.clear()
+		return
+	_turn_start_pos = unit.grid_pos
+	_turn_start_snapshot = {
+		"current_hp": unit.current_hp,
+		"shield": unit.shield,
+		"current_stability": unit.current_stability,
+		"stability_depleted": unit.stability_depleted,
+		"capture_ready": unit.capture_ready,
+		"bonus_move_range": unit.bonus_move_range
+	}
+
+func _undo_active_unit_move() -> void:
+	if _active_unit == null or not is_instance_valid(_active_unit):
+		return
+	if _turn_start_pos == Vector2i(-1, -1) or _active_unit.grid_pos == _turn_start_pos:
+		return
+	if grid_manager.is_occupied(_turn_start_pos):
+		_show_tip("起始格已被占用，不能撤回移动。")
+		return
+	grid_manager.move_unit(_active_unit, _active_unit.grid_pos, _turn_start_pos)
+	_active_unit.grid_pos = _turn_start_pos
+	_active_unit.has_moved = false
+	_active_unit.restore_turn_snapshot(_turn_start_snapshot)
+	_cancel_to_action_menu("已撤回移动，回到本回合开始位置。")
+
+func _cancel_to_action_menu(message: String) -> void:
+	_action_state = Enums.ActionState.IDLE
+	_selected_card_id = ""
+	_selected_skill_index = 0
+	_selected_skill_target = Vector2i(-1, -1)
+	_move_cells.clear()
+	_attack_cells.clear()
+	_card_cells.clear()
+	_clear_skill_preview()
+	grid_manager.clear_highlights()
+	_update_enemy_threat_overlay()
+	_show_action_menu()
+	_show_tip(message)
+
+func _toggle_enemy_threat() -> void:
+	_enemy_threat_visible = not _enemy_threat_visible
+	_update_enemy_threat_overlay()
+
+func _update_enemy_threat_overlay() -> void:
+	if not is_instance_valid(grid_manager):
+		return
+	if not _enemy_threat_visible:
+		grid_manager.clear_threat_cells()
+		if is_instance_valid(_enemy_threat_button):
+			_enemy_threat_button.text = "敌方范围"
+		return
+	grid_manager.set_threat_cells(_get_all_enemy_threat_cells())
+	if is_instance_valid(_enemy_threat_button):
+		_enemy_threat_button.text = "隐藏范围"
+
+func _get_all_enemy_threat_cells() -> Array[Vector2i]:
+	var result: Array[Vector2i] = []
+	var seen := {}
+	for unit in _all_units:
+		if not is_instance_valid(unit) or not unit.is_enemy() or not unit.is_alive():
+			continue
+		var move_cells := grid_manager.get_move_range(unit.grid_pos, unit.get_current_move_range())
+		for cell in _get_attack_preview_cells(unit, move_cells):
+			if not seen.has(cell):
+				seen[cell] = true
+				result.append(cell)
+	return result
 
 func _show_action_menu() -> void:
 	if _active_unit == null or not is_instance_valid(_active_unit):
@@ -929,6 +1041,7 @@ func _remove_unit(unit: Unit, check_over: bool = true) -> void:
 	ctb_bar.remove_unit(unit)
 	_all_units.erase(unit)
 	unit.queue_free()
+	_update_enemy_threat_overlay()
 	if check_over:
 		_check_battle_over()
 

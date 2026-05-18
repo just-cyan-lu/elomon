@@ -96,13 +96,17 @@ func set_ctb_state(is_running: bool, ready_unit: Unit = null) -> void:
 	_refresh_labels()
 
 func _process(_delta: float) -> void:
+	var next_unit := _get_next_predicted_unit()
 	for unit in _bars:
 		if is_instance_valid(unit) and is_instance_valid(_bars[unit]):
 			_bars[unit].value = unit.current_ap
 			if unit == _active_unit:
 				_bars[unit].modulate = Color(1.0, 0.88, 0.35, 1.0)
+			elif unit == next_unit:
+				_bars[unit].modulate = Color(0.7, 1.0, 0.65, 1.0)
 			else:
 				_bars[unit].modulate = Color.WHITE
+	_refresh_labels()
 	if _view_mode == ViewMode.AXIS:
 		_refresh_axis()
 
@@ -113,6 +117,8 @@ func _refresh_labels() -> void:
 		var prefix := ""
 		if unit == _active_unit:
 			prefix = "READY "
+		elif unit == _get_next_predicted_unit():
+			prefix = "NEXT "
 		elif not _is_ctb_running:
 			prefix = "WAIT "
 		_labels[unit].text = prefix + unit.data.unit_name
@@ -126,9 +132,21 @@ func _refresh_axis() -> void:
 			label.modulate = Color(1.0, 1.0, 1.0, 0.25)
 			continue
 		var unit: Unit = order[i]["unit"]
-		var prefix := "NOW" if i == 0 and unit == _active_unit else "N%d" % (i + 1)
+		var prefix := str(i + 1)
+		if i == 0 and unit == _active_unit:
+			prefix = "动"
+		elif i == 0:
+			prefix = "下"
 		label.text = "%s\n%s" % [prefix, _short_unit_name(unit)]
 		label.modulate = _get_unit_color(unit)
+
+func _get_next_predicted_unit() -> Unit:
+	if _active_unit != null and is_instance_valid(_active_unit):
+		return _active_unit
+	var order := _predict_action_order(1)
+	if order.is_empty():
+		return null
+	return order[0]["unit"]
 
 func _predict_action_order(count: int) -> Array[Dictionary]:
 	var sim_units: Array[Unit] = []

@@ -11,12 +11,14 @@ const COLOR_CURSOR  := Color(1.0, 1.0, 0.0, 0.5) # 黄色，鼠标悬停
 const COLOR_GRASS   := Color(0.1, 0.38, 0.16)
 const COLOR_BURNING := Color(0.9, 0.28, 0.08)
 const COLOR_WARNING := Color(1.0, 0.55, 0.12, 0.85)
+const COLOR_THREAT  := Color(0.75, 0.18, 0.18, 0.52)
 
 var _grid: Array = []
 var _terrain: Array = []
 var _cell_nodes: Array = []   # 存 ColorRect 节点，方便改颜色
 var _highlighted: Array = []  # 当前高亮的格子列表
 var _warning_cells: Array[Vector2i] = []
+var _threat_cells: Array[Vector2i] = []
 
 func _ready() -> void:
 	_init_grid()
@@ -104,10 +106,26 @@ func set_warning_cells(cells: Array[Vector2i]) -> void:
 			_cell_nodes[pos.y][pos.x].color = COLOR_WARNING
 
 func clear_warning_cells() -> void:
-	for pos in _warning_cells:
-		if is_valid(pos):
-			_cell_nodes[pos.y][pos.x].color = _get_terrain_color(pos)
+	var old_cells := _warning_cells.duplicate()
 	_warning_cells.clear()
+	for pos in old_cells:
+		if is_valid(pos):
+			_cell_nodes[pos.y][pos.x].color = _get_display_color(pos)
+
+func set_threat_cells(cells: Array[Vector2i]) -> void:
+	clear_threat_cells()
+	for pos in cells:
+		if is_valid(pos) and not _threat_cells.has(pos):
+			_threat_cells.append(pos)
+			if not _highlighted.has(pos):
+				_cell_nodes[pos.y][pos.x].color = _get_display_color(pos)
+
+func clear_threat_cells() -> void:
+	var old_cells := _threat_cells.duplicate()
+	_threat_cells.clear()
+	for pos in old_cells:
+		if is_valid(pos) and not _highlighted.has(pos):
+			_cell_nodes[pos.y][pos.x].color = _get_display_color(pos)
 
 func setup_mvp_terrain() -> void:
 	for y in range(7, 11):
@@ -128,6 +146,8 @@ func _get_terrain_color(pos: Vector2i) -> Color:
 func _get_display_color(pos: Vector2i) -> Color:
 	if _warning_cells.has(pos):
 		return COLOR_WARNING
+	if _threat_cells.has(pos):
+		return COLOR_THREAT
 	return _get_terrain_color(pos)
 
 # 放置单位到格子

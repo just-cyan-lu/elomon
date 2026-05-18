@@ -159,6 +159,18 @@ func set_power_boost(value: bool) -> void:
 	power_boost_next_attack = value
 	_update_label()
 
+func restore_turn_snapshot(snapshot: Dictionary) -> void:
+	current_hp = snapshot["current_hp"]
+	shield = snapshot["shield"]
+	current_stability = snapshot["current_stability"]
+	stability_depleted = snapshot["stability_depleted"]
+	capture_ready = snapshot["capture_ready"]
+	bonus_move_range = snapshot["bonus_move_range"]
+	_update_hp_bar()
+	_update_label()
+	emit_signal("hp_changed", current_hp, data.max_hp)
+	emit_signal("status_changed", self)
+
 func _update_label() -> void:
 	if not is_instance_valid(_label):
 		return
