@@ -37,8 +37,6 @@ var _sync_feedback_label: Label
 var _tip_label: Label
 var _preview_panel: PanelContainer
 var _preview_label: Label
-var _unit_detail_panel: PanelContainer
-var _unit_detail_label: Label
 var _card_cooldowns := {}
 var _selected_skill_target: Vector2i = Vector2i(-1, -1)
 var _skill_preview_entries: Array[Dictionary] = []
@@ -116,17 +114,6 @@ func _build_mvp_ui() -> void:
 	cancel_button.add_theme_font_size_override("font_size", 8)
 	cancel_button.pressed.connect(_return_to_skill_selection)
 	button_row.add_child(cancel_button)
-
-	_unit_detail_panel = PanelContainer.new()
-	_unit_detail_panel.position = Vector2(4, 178)
-	_unit_detail_panel.size = Vector2(214, 176)
-	_unit_detail_panel.visible = false
-	$UI.add_child(_unit_detail_panel)
-	_unit_detail_label = Label.new()
-	_unit_detail_label.custom_minimum_size = Vector2(204, 166)
-	_unit_detail_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_unit_detail_label.add_theme_font_size_override("font_size", 7)
-	_unit_detail_panel.add_child(_unit_detail_label)
 
 func _spawn_units() -> void:
 	var fire_skill := _make_skill("火花", 26, 2, 30, Enums.ElementType.FIRE, 20, true)
@@ -386,11 +373,7 @@ func _on_card_pressed(card_id: String) -> void:
 	_show_tip("选择 %s 的目标。" % CARD_DEFS[card_id]["name"])
 
 func _on_cell_clicked(grid_pos: Vector2i) -> void:
-	var clicked_unit := grid_manager.get_unit_at(grid_pos)
-	if clicked_unit != null:
-		_show_unit_detail(clicked_unit)
-	if _battle_state != Enums.BattleState.PLAYER_TURN:
-		return
+	if _battle_state != Enums.BattleState.PLAYER_TURN: return
 	
 	match _action_state:
 		Enums.ActionState.SELECTING_MOVE:
@@ -423,11 +406,9 @@ func _on_cell_clicked(grid_pos: Vector2i) -> void:
 				_summon_grass(grid_pos)
 
 		Enums.ActionState.IDLE:
-			if clicked_unit != null and clicked_unit.is_enemy():
-				_preview_unit_ranges(clicked_unit)
-			elif clicked_unit != null:
-				grid_manager.clear_highlights()
-				_show_action_menu()
+			var target := grid_manager.get_unit_at(grid_pos)
+			if target != null and target.is_enemy():
+				_preview_unit_ranges(target)
 			else:
 				grid_manager.clear_highlights()
 				_show_action_menu()
@@ -760,129 +741,6 @@ func _get_card_short_name(card_id: String) -> String:
 			return "封印"
 		_:
 			return str(card_id)
-
-func _show_unit_detail(unit: Unit) -> void:
-	if not is_instance_valid(_unit_detail_panel) or not is_instance_valid(_unit_detail_label):
-		return
-	_unit_detail_label.text = _build_unit_detail_text(unit)
-	_unit_detail_panel.visible = true
-
-func _build_unit_detail_text(unit: Unit) -> String:
-	var lines: Array[String] = []
-	lines.append("%s  %s" % [unit.data.unit_name, _get_side_text(unit)])
-	lines.append("HP %d/%d  AP %d/%d" % [
-		unit.current_hp,
-		unit.data.max_hp,
-		int(unit.current_ap),
-		int(Enums.MAX_AP)
-	])
-	lines.append("攻%d 防%d 速%d 移%d" % [
-		unit.data.attack,
-		unit.data.defense,
-		int(unit.data.speed),
-		unit.get_current_move_range()
-	])
-	if unit.data.max_stability > 0:
-		lines.append("稳定 %d/%d%s" % [
-			unit.current_stability,
-			unit.data.max_stability,
-			" 可封印" if unit.is_capturable() else ""
-		])
-	var status_text := _get_status_text(unit)
-	if status_text != "":
-		lines.append("状态 " + status_text)
-	lines.append("技能 " + _get_skill_summary(unit))
-	for risk_line in _get_risk_lines(unit):
-		lines.append(risk_line)
-	return _join_strings(lines, "\n")
-
-func _get_side_text(unit: Unit) -> String:
-	if unit.is_ally():
-		return "我方"
-	if unit.data.unit_type == Enums.UnitType.WILD_POKEMON:
-		return "野生"
-	if unit.is_enemy():
-		return "敌方"
-	return "中立"
-
-func _get_status_text(unit: Unit) -> String:
-	var parts: Array[String] = []
-	if unit.shield > 0:
-		parts.append("盾%d" % unit.shield)
-	if unit.power_boost_next_attack:
-		parts.append("下次攻击+50%")
-	if unit.bonus_move_range > 0:
-		parts.append("下次移动+%d" % unit.bonus_move_range)
-	if not unit.pending_charge_cells.is_empty():
-		parts.append("蓄力中")
-	if unit.capture_ready:
-		parts.append("可封印")
-	return _join_strings(parts, "、")
-
-func _get_skill_summary(unit: Unit) -> String:
-	var parts: Array[String] = []
-	for skill_resource in unit.data.skills:
-		var skill: SkillData = skill_resource
-		var area_text := ""
-		if skill.area_radius > 0:
-			area_text = " 范%d" % skill.area_radius
-		parts.append("%s R%d%s" % [skill.skill_name, skill.atk_range, area_text])
-	if parts.is_empty():
-		return "无"
-	return _join_strings(parts, " / ")
-
-func _get_risk_lines(unit: Unit) -> Array[String]:
-	if unit.is_ally():
-		return [_get_incoming_risk_line(unit)]
-	if unit.is_enemy():
-		return [_get_outgoing_risk_line(unit)]
-	return []
-
-func _get_incoming_risk_line(unit: Unit) -> String:
-	var best_damage := 0
-	var best_hits := 0
-	var best_name := ""
-	for enemy in _all_units:
-		if not is_instance_valid(enemy) or not enemy.is_enemy() or not enemy.is_alive():
-			continue
-		if enemy.data.skills.is_empty():
-			continue
-		var skill: SkillData = enemy.data.skills[0]
-		var raw_damage := _get_raw_skill_damage(enemy, skill)
-		var repeat_damage: int = max(raw_damage - unit.data.defense, 1)
-		var hits := _get_hits_to_defeat(unit.current_hp + unit.shield, repeat_damage)
-		if repeat_damage > best_damage:
-			best_damage = repeat_damage
-			best_hits = hits
-			best_name = "%s:%s" % [enemy.data.unit_name, skill.skill_name]
-	if best_damage <= 0:
-		return "承伤 暂无主要威胁"
-	return "承伤 %s 约%d/下，约%d下倒" % [best_name, best_damage, best_hits]
-
-func _get_outgoing_risk_line(unit: Unit) -> String:
-	var best_damage := 0
-	var best_hits := 0
-	var best_name := ""
-	for ally in _all_units:
-		if not is_instance_valid(ally) or not ally.is_ally() or not ally.is_alive():
-			continue
-		for skill_resource in ally.data.skills:
-			var skill: SkillData = skill_resource
-			var raw_damage := _get_raw_skill_damage(ally, skill)
-			var repeat_damage: int = max(raw_damage - unit.data.defense, 1)
-			var hits := _get_hits_to_defeat(unit.current_hp + unit.shield, repeat_damage)
-			if repeat_damage > best_damage:
-				best_damage = repeat_damage
-				best_hits = hits
-				best_name = "%s:%s" % [ally.data.unit_name, skill.skill_name]
-	if best_damage <= 0:
-		return "击倒 暂无可用我方输出"
-	return "击倒 %s 约%d/下，约%d下倒" % [best_name, best_damage, best_hits]
-
-func _get_hits_to_defeat(effective_hp: int, damage_per_hit: int) -> int:
-	if damage_per_hit <= 0:
-		return 99
-	return int(ceil(float(max(effective_hp, 1)) / float(damage_per_hit)))
 
 func _cells_in_range(origin: Vector2i, range_value: int) -> Array[Vector2i]:
 	var result: Array[Vector2i] = []
