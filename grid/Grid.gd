@@ -9,7 +9,6 @@ const COLOR_MOVE    := Color(0.2, 0.5, 1.0, 0.6)
 const COLOR_ATTACK  := Color(1.0, 0.2, 0.2, 0.6)
 const COLOR_CURSOR  := Color(1.0, 1.0, 0.0, 0.5) # 黄色，鼠标悬停
 const COLOR_GRASS   := Color(0.1, 0.38, 0.16)
-const COLOR_BURNING := Color(0.9, 0.28, 0.08)
 const COLOR_WARNING := Color(1.0, 0.55, 0.12, 0.85)
 const COLOR_THREAT  := Color(0.75, 0.18, 0.18, 0.52)
 
@@ -138,8 +137,6 @@ func _get_terrain_color(pos: Vector2i) -> Color:
 	match _terrain[pos.y][pos.x]:
 		Enums.TerrainType.GRASS:
 			return COLOR_GRASS
-		Enums.TerrainType.BURNING:
-			return COLOR_BURNING
 		_:
 			return COLOR_NORMAL
 

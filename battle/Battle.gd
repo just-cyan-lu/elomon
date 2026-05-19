@@ -7,7 +7,7 @@ const CARD_DEFS := {
 	"haste": {"name": "高速组件", "cost": 30, "cooldown": 2, "effect": "目标宝可梦下一次移动距离 +2，移动后消耗。"},
 	"shield": {"name": "小型护盾", "cost": 20, "cooldown": 2, "effect": "目标友方获得 30 护盾，护盾会抵消之后受到的伤害。"},
 	"power": {"name": "火力插件", "cost": 25, "cooldown": 2, "effect": "目标宝可梦下一次攻击伤害提高 50%，攻击后消耗。"},
-	"terrain": {"name": "地形重构", "cost": 15, "cooldown": 1, "effect": "把射程内目标格改成草地；火系技能命中草地会点燃。"},
+	"terrain": {"name": "地形重构", "cost": 15, "cooldown": 1, "effect": "把射程内目标格改成草地。"},
 	"capture": {"name": "空白封印卡", "cost": 40, "cooldown": 3, "effect": "封印稳定度归零且 HP 低于 40% 的野生宝可梦。"},
 }
 
@@ -129,10 +129,10 @@ func _build_mvp_ui() -> void:
 	button_row.add_child(cancel_button)
 
 func _spawn_units() -> void:
-	var fire_skill := _make_skill("火花", 26, 2, 30, Enums.ElementType.FIRE, 20, true)
-	var flame_line := _make_skill("火焰喷射", 42, 3, 75, Enums.ElementType.FIRE, 35, true, false, 1)
+	var fire_skill := _make_skill("火花", 26, 2, 30, Enums.ElementType.FIRE, 20)
+	var flame_line := _make_skill("火焰喷射", 42, 3, 75, Enums.ElementType.FIRE, 35, false, 1)
 	var vine_skill := _make_skill("藤鞭", 24, 3, 35, Enums.ElementType.GRASS, 18, false)
-	var snare_skill := _make_skill("缠绕", 14, 3, 45, Enums.ElementType.GRASS, 25, false, true)
+	var snare_skill := _make_skill("缠绕", 14, 3, 45, Enums.ElementType.GRASS, 25, true)
 	var blade_skill := _make_skill("数据短刃", 14, 1, 25, Enums.ElementType.NONE, 8)
 	var bite_skill := _make_skill("撕咬", 22, 1, 35, Enums.ElementType.NONE, 8)
 	var dart_skill := _make_skill("毒针", 18, 3, 45, Enums.ElementType.NONE, 8)
@@ -206,7 +206,6 @@ func _make_skill(
 	ap_cost: float,
 	element_type: int,
 	stability_damage: int,
-	can_ignite_grass: bool = false,
 	is_control: bool = false,
 	area_radius: int = 0
 ) -> SkillData:
@@ -217,7 +216,6 @@ func _make_skill(
 	skill.ap_cost = ap_cost
 	skill.element_type = element_type
 	skill.stability_damage = stability_damage
-	skill.can_ignite_grass = can_ignite_grass
 	skill.is_control = is_control
 	skill.area_radius = area_radius
 	return skill
@@ -245,7 +243,6 @@ func _on_unit_ready(unit: Unit) -> void:
 	_turn_has_support_action = false
 	_tick_card_cooldowns()
 	_gain_sync(max(1, 6 - _active_pokemon_count() * 2), "自然回复")
-	_apply_tile_effect(_active_unit)
 	_update_capture_marks()
 	if not is_instance_valid(_active_unit) or not _active_unit.is_alive():
 		if _battle_state != Enums.BattleState.BATTLE_OVER:
@@ -256,7 +253,6 @@ func _on_unit_ready(unit: Unit) -> void:
 		_battle_state = Enums.BattleState.ENEMY_TURN
 		action_menu.hide_menu()
 		await UnitAI.run(unit, grid_manager, _all_units)
-		_apply_tile_effect(unit)
 		_end_turn()
 	else:
 		_battle_state = Enums.BattleState.PLAYER_TURN
@@ -273,11 +269,6 @@ func _on_unit_ready(unit: Unit) -> void:
 func _end_turn() -> void:
 	if _battle_state == Enums.BattleState.BATTLE_OVER:
 		return
-	if _battle_state == Enums.BattleState.PLAYER_TURN \
-	and _active_unit and is_instance_valid(_active_unit) and _active_unit.is_alive():
-		_apply_tile_effect(_active_unit)
-		if _battle_state == Enums.BattleState.BATTLE_OVER:
-			return
 	if _active_unit and is_instance_valid(_active_unit):
 		_active_unit.consume_ap(Enums.MAX_AP)
 	_action_state = Enums.ActionState.IDLE
@@ -520,11 +511,7 @@ func _execute_skill_preview(attacker: Unit, skill: SkillData, target_pos: Vector
 			_gain_sync(5, "宝可梦攻击")
 	for i in range(depleted_count):
 		_gain_sync(12, "稳定归零")
-	if skill.can_ignite_grass and grid_manager.get_terrain(target_pos) == Enums.TerrainType.GRASS:
-		grid_manager.set_terrain(target_pos, Enums.TerrainType.BURNING)
-		_show_tip("%s 命中 %d 个目标，共造成 %d 伤害，并点燃了草地。" % [skill.skill_name, entries.size(), total_damage])
-	else:
-		_show_tip("%s 命中 %d 个目标，共造成 %d 伤害。" % [skill.skill_name, entries.size(), total_damage])
+	_show_tip("%s 命中 %d 个目标，共造成 %d 伤害。" % [skill.skill_name, entries.size(), total_damage])
 	_update_capture_marks()
 
 func _resolve_card(grid_pos: Vector2i) -> void:
@@ -815,8 +802,6 @@ func _describe_skill(skill: SkillData) -> String:
 	parts.append("基础伤害 %d + %s 攻击 %d；确认命中后自动结束回合。" % [skill.damage, _active_unit.data.unit_name, _active_unit.data.attack])
 	if skill.stability_damage > 0:
 		parts.append("稳定度伤害 %d；属性克制时翻倍，控制技能会额外增加。" % skill.stability_damage)
-	if skill.can_ignite_grass:
-		parts.append("命中草地会点燃。")
 	if skill.is_control:
 		parts.append("控制技能。")
 	return _join_strings(parts, "\n")
@@ -980,8 +965,6 @@ func _show_preview_panel(attacker: Unit, skill: SkillData, entries: Array[Dictio
 	lines.append("总伤害 %d" % total_damage)
 	if attacker.power_boost_next_attack:
 		lines.append("火力插件已计入")
-	if skill.can_ignite_grass:
-		lines.append("命中草地会点燃")
 	_preview_label.text = _join_strings(lines, "\n")
 	_preview_panel.visible = true
 
@@ -1017,14 +1000,6 @@ func _is_element_advantage(attack_type: int, target_type: int) -> bool:
 	return (attack_type == Enums.ElementType.FIRE and target_type == Enums.ElementType.GRASS) \
 		or (attack_type == Enums.ElementType.GRASS and target_type == Enums.ElementType.WATER) \
 		or (attack_type == Enums.ElementType.WATER and target_type == Enums.ElementType.FIRE)
-
-func _apply_tile_effect(unit: Unit) -> void:
-	if not is_instance_valid(unit) or not unit.is_alive():
-		return
-	if grid_manager.get_terrain(unit.grid_pos) == Enums.TerrainType.BURNING \
-	and unit.data.element_type != Enums.ElementType.FIRE:
-		unit.take_damage(8)
-		_show_tip("%s 被燃烧地面灼伤。" % unit.data.unit_name)
 
 func _update_capture_marks() -> void:
 	for unit in _all_units:

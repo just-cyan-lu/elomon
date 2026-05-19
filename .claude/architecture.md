@@ -24,7 +24,7 @@
 - 训练师倒下不会直接失败，而是进入指挥离线状态：不能再刷卡、召唤、回收或封印，只能继续操作已在场的宝可梦。己方全部单位倒下才失败。
 
 ## 网格（`grid/`）
-`Grid.gd` 声明 `class_name GridManager`，维护一个 20×20 的二维数组（`_grid`），将 `Vector2i` 坐标映射到 `Unit` 引用（或 `null`）。另有 `_terrain` 数组记录普通地面、草地和燃烧地面。当前原型直接用动态创建的 `ColorRect` 绘制格子，有美术或 TileMap 方案后再替换表现层。核心方法：
+`Grid.gd` 声明 `class_name GridManager`，维护一个 20×20 的二维数组（`_grid`），将 `Vector2i` 坐标映射到 `Unit` 引用（或 `null`）。另有 `_terrain` 数组记录普通地面和草地。当前原型直接用动态创建的 `ColorRect` 绘制格子，有美术或 TileMap 方案后再替换表现层。核心方法：
 - `get_move_range(origin, move_range)` — BFS，跳过已有单位的格子
 - `get_attack_range(origin, attack_range)` — 曼哈顿距离，含有单位的格子也包括在内
 - `highlight_cells()` / `clear_highlights()` — 修改 `ColorRect` 节点颜色；`highlight_cells()` 可选择不清除已有高亮，用于同时显示移动范围和攻击威胁
@@ -42,7 +42,7 @@
 - `UnitAI.gd`（`class_name UnitAI`，继承 `RefCounted`）— 无状态静态 AI。`run()` 优先反击上一次攻击自己的我方单位；没有可用仇恨目标时，寻找最近我方单位，移动靠近后若在攻击范围内则发动攻击。厚血大怪每隔数次行动可能进入蓄力状态，下一次行动结算预警格伤害。
 
 ## 技能（`skills/`）
-- `SkillData.gd`（`class_name SkillData`，继承 `Resource`）— 字段：`skill_name`、`damage`、`atk_range`、预留的 `ap_cost`、元素属性、稳定度伤害、是否点燃草地、是否控制技能、`area_radius`。MVP 中技能不消耗 AP，`ap_cost` 暂不参与战斗结算。`area_radius=0` 表示单体，`>0` 表示目标格周围菱形范围。旧实例位于 `skills/tres/`，MVP 样板战当前由 `Battle.gd` 动态生成。
+- `SkillData.gd`（`class_name SkillData`，继承 `Resource`）— 字段：`skill_name`、`damage`、`atk_range`、预留的 `ap_cost`、元素属性、稳定度伤害、是否控制技能、`area_radius`。MVP 中技能不消耗 AP，`ap_cost` 暂不参与战斗结算。`area_radius=0` 表示单体，`>0` 表示目标格周围菱形范围。旧实例位于 `skills/tres/`，MVP 样板战当前由 `Battle.gd` 动态生成。
 - 伤害公式：`actual_damage = max(skill.damage + unit.attack - target.defense, 1)`
 - 玩家单位可通过行动菜单使用技能 1 或技能 2；敌方 AI 仍使用单位技能列表中的第一个技能。
 

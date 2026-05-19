@@ -24,8 +24,7 @@ enum ElementType {
 # 地形类型，MVP 用于验证站位与技能互动
 enum TerrainType {
 	NORMAL,
-	GRASS,
-	BURNING
+	GRASS
 }
 
 # 战斗整体状态（Battle.gd 用）
