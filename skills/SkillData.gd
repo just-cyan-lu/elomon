@@ -1,6 +1,11 @@
 class_name SkillData
 extends Resource
 
+enum EffectType {
+	DAMAGE,
+	HEAL
+}
+
 @export var skill_name: String = "技能"
 @export var damage: int = 30       # 基础伤害（不含攻击力加成）
 @export var atk_range: int = 1         # 攻击射程，1=只打相邻格
@@ -9,3 +14,4 @@ extends Resource
 @export var stability_damage: int = 10  # 对稳定度的削减，捕捉系统使用
 @export var is_control: bool = false
 @export var area_radius: int = 0     # 0=单体；>0 时命中目标格周围菱形范围
+@export var effect_type: EffectType = EffectType.DAMAGE

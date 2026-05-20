@@ -11,9 +11,25 @@ extends Resource
 @export var color: Color = Color.GRAY  # 占位色块颜色，有美术后替换
 @export var skills: Array[Resource] = []  # 携带的 SkillData 列表
 @export var element_type: Enums.ElementType = Enums.ElementType.NONE
+@export var element_types: Array[int] = []  # 支持未来双属性；为空时回退到 element_type
 @export var max_stability: int = 0   # 大于 0 时显示稳定度，可被封印系统使用
 @export var can_charge_attack: bool = false
 @export var charge_interval: int = 3
 @export var charge_damage: int = 16
 @export var charge_range: int = 5
 @export var charge_radius: int = 1
+
+func set_element_types(types: Array[int]) -> void:
+	element_types = []
+	for element_type_value in types:
+		if element_type_value == Enums.ElementType.NONE or element_types.has(element_type_value):
+			continue
+		element_types.append(element_type_value)
+	element_type = element_types[0] if not element_types.is_empty() else Enums.ElementType.NONE
+
+func get_element_types() -> Array[int]:
+	if not element_types.is_empty():
+		return element_types.duplicate()
+	if element_type == Enums.ElementType.NONE:
+		return []
+	return [element_type]

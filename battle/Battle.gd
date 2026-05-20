@@ -1,14 +1,20 @@
 extends Node
 
+const TypeChartUtil = preload("res://core/TypeChart.gd")
 const CARD_RANGE := 3
 const SUMMON_COST := 50
 const RECALL_COST := 10
+const EXTRACT_COST := 20
 const CARD_DEFS := {
 	"haste": {"name": "高速组件", "cost": 30, "cooldown": 2, "effect": "目标宝可梦下一次移动距离 +2，移动后消耗。"},
 	"shield": {"name": "小型护盾", "cost": 20, "cooldown": 2, "effect": "目标友方获得 30 护盾，护盾会抵消之后受到的伤害。"},
 	"power": {"name": "火力插件", "cost": 25, "cooldown": 2, "effect": "目标宝可梦下一次攻击伤害提高 50%，攻击后消耗。"},
-	"terrain": {"name": "地形重构", "cost": 15, "cooldown": 1, "effect": "把射程内目标格改成草地。"},
 	"capture": {"name": "空白封印卡", "cost": 40, "cooldown": 3, "effect": "封印稳定度归零且 HP 低于 40% 的野生宝可梦。"},
+}
+const EXTRACT_DEFS := {
+	"grass": {"name": "提取藤藤兽", "reserve": "藤藤兽", "skill_index": 1, "effect": "训练师切换为草属性，技能替换为缠绕；被火系克制，抵抗水系。"},
+	"water": {"name": "提取水跃兽", "reserve": "水跃兽", "skill_index": 1, "effect": "训练师切换为水属性，技能替换为水愈；抵抗火系，被草系克制。"},
+	"spark": {"name": "提取电花鼠", "reserve": "电花鼠", "skill_index": 0, "effect": "训练师切换为无属性，技能替换为电弧；雷系尚未进入 MVP 克制表。"},
 }
 
 # 子节点引用（在 Battle.tscn 场景里赋值，名称必须一致）
@@ -25,7 +31,8 @@ var _active_unit: Unit = null
 var _trainer: Unit = null
 var _trainer_disabled: bool = false
 var _all_units: Array[Unit] = []
-var _reserve_grass_data: UnitData = null
+var _reserve_units: Dictionary = {}
+var _trainer_extract_id: String = ""
 var _captured_names: Array[String] = []
 
 var _sync_points: int = 70
@@ -46,6 +53,8 @@ var _enemy_threat_visible: bool = false
 var _turn_start_pos: Vector2i = Vector2i(-1, -1)
 var _turn_start_snapshot := {}
 var _turn_has_support_action: bool = false
+var _extract_undo_available: bool = false
+var _extract_undo_snapshot := {}
 
 # 缓存当前高亮的格子（用于点击判断）
 var _move_cells: Array[Vector2i] = []
@@ -133,19 +142,31 @@ func _spawn_units() -> void:
 	var flame_line := _make_skill("火焰喷射", 42, 3, 75, Enums.ElementType.FIRE, 35, false, 1)
 	var vine_skill := _make_skill("藤鞭", 24, 3, 35, Enums.ElementType.GRASS, 18, false)
 	var snare_skill := _make_skill("缠绕", 14, 3, 45, Enums.ElementType.GRASS, 25, true)
+	var water_skill := _make_skill("水泡", 20, 3, 35, Enums.ElementType.WATER, 14)
+	var mend_skill := _make_skill("水愈", 22, 3, 40, Enums.ElementType.WATER, 0, false, 0, SkillData.EffectType.HEAL)
+	var spark_skill := _make_skill("电弧", 22, 3, 40, Enums.ElementType.NONE, 16)
+	var quick_skill := _make_skill("疾闪", 12, 2, 30, Enums.ElementType.NONE, 8)
 	var blade_skill := _make_skill("数据短刃", 14, 1, 25, Enums.ElementType.NONE, 8)
-	var bite_skill := _make_skill("撕咬", 22, 1, 35, Enums.ElementType.NONE, 8)
-	var dart_skill := _make_skill("毒针", 18, 3, 45, Enums.ElementType.NONE, 8)
+	var fire_bite_skill := _make_skill("火牙", 22, 1, 35, Enums.ElementType.FIRE, 10)
+	var grass_bite_skill := _make_skill("叶咬", 22, 1, 35, Enums.ElementType.GRASS, 10)
+	var water_dart_skill := _make_skill("水针", 18, 3, 45, Enums.ElementType.WATER, 10)
 	var boss_skill := _make_skill("重踏", 10, 1, 60, Enums.ElementType.GRASS, 10)
 	
-	_reserve_grass_data = _make_unit_data("藤藤兽", Enums.UnitType.PLAYER_POKEMON, 95, 15, 5, 48, 4, Color(0.25, 0.75, 0.36), Enums.ElementType.GRASS, [vine_skill, snare_skill])
+	var grass_data := _make_unit_data("藤藤兽", Enums.UnitType.PLAYER_POKEMON, 95, 15, 5, 48, 4, Color(0.25, 0.75, 0.36), Enums.ElementType.GRASS, [vine_skill, snare_skill])
+	var water_data := _make_unit_data("水跃兽", Enums.UnitType.PLAYER_POKEMON, 88, 13, 4, 52, 4, Color(0.24, 0.58, 0.86), Enums.ElementType.WATER, [water_skill, mend_skill])
+	var spark_data := _make_unit_data("电花鼠", Enums.UnitType.PLAYER_POKEMON, 76, 16, 3, 68, 5, Color(0.85, 0.78, 0.34), Enums.ElementType.NONE, [spark_skill, quick_skill])
+	_reserve_units.clear()
+	_reserve_units[grass_data.unit_name] = grass_data
+	_reserve_units[water_data.unit_name] = water_data
+	_reserve_units[spark_data.unit_name] = spark_data
 	
 	var unit_scene := preload("res://units/Unit.tscn")
-	_spawn_unit(unit_scene, _make_unit_data("训练师", Enums.UnitType.PLAYER, 90, 10, 4, 44, 4, Color(0.35, 0.85, 0.88), Enums.ElementType.NONE, [blade_skill]), Vector2i(2, 5))
+	var trainer_data := _make_unit_data("训练师", Enums.UnitType.PLAYER, 90, 10, 4, 44, 4, Color(0.35, 0.85, 0.88), Enums.ElementType.NONE, [blade_skill])
+	_spawn_unit(unit_scene, trainer_data, Vector2i(2, 5))
 	_spawn_unit(unit_scene, _make_unit_data("火狐兽", Enums.UnitType.PLAYER_POKEMON, 105, 18, 5, 58, 4, Color(0.95, 0.42, 0.18), Enums.ElementType.FIRE, [fire_skill, flame_line]), Vector2i(3, 5))
-	_spawn_unit(unit_scene, _make_unit_data("近战小怪A", Enums.UnitType.ENEMY, 72, 13, 3, 36, 4, Color(0.92, 0.34, 0.32), Enums.ElementType.NONE, [bite_skill]), Vector2i(10, 4))
-	_spawn_unit(unit_scene, _make_unit_data("近战小怪B", Enums.UnitType.ENEMY, 72, 13, 3, 34, 4, Color(0.82, 0.26, 0.45), Enums.ElementType.NONE, [bite_skill]), Vector2i(10, 7))
-	_spawn_unit(unit_scene, _make_unit_data("远程小怪", Enums.UnitType.ENEMY, 62, 11, 2, 40, 3, Color(0.58, 0.48, 0.92), Enums.ElementType.NONE, [dart_skill]), Vector2i(13, 5))
+	_spawn_unit(unit_scene, _make_unit_data("火牙小怪", Enums.UnitType.ENEMY, 72, 13, 3, 36, 4, Color(0.92, 0.34, 0.32), Enums.ElementType.FIRE, [fire_bite_skill]), Vector2i(10, 4))
+	_spawn_unit(unit_scene, _make_unit_data("叶咬小怪", Enums.UnitType.ENEMY, 72, 13, 3, 34, 4, Color(0.82, 0.36, 0.28), Enums.ElementType.GRASS, [grass_bite_skill]), Vector2i(10, 7))
+	_spawn_unit(unit_scene, _make_unit_data("水针小怪", Enums.UnitType.ENEMY, 62, 11, 2, 40, 3, Color(0.34, 0.48, 0.82), Enums.ElementType.WATER, [water_dart_skill]), Vector2i(13, 5))
 	_spawn_unit(unit_scene, _make_unit_data("铁甲巨兽", Enums.UnitType.WILD_POKEMON, 280, 8, 8, 24, 2, Color(0.25, 0.65, 0.25), Enums.ElementType.GRASS, [boss_skill], 110, true, 3, 18, 5, 1), Vector2i(14, 9))
 
 func _spawn_unit(unit_scene: PackedScene, unit_data: UnitData, spawn_pos: Vector2i) -> Unit:
@@ -188,7 +209,10 @@ func _make_unit_data(
 	data.speed = speed
 	data.move_range = move_range
 	data.color = color
-	data.element_type = element_type
+	var unit_element_types: Array[int] = []
+	if element_type != Enums.ElementType.NONE:
+		unit_element_types.append(element_type)
+	data.set_element_types(unit_element_types)
 	for skill in skills:
 		data.skills.append(skill)
 	data.max_stability = max_stability
@@ -207,7 +231,8 @@ func _make_skill(
 	element_type: int,
 	stability_damage: int,
 	is_control: bool = false,
-	area_radius: int = 0
+	area_radius: int = 0,
+	effect_type: int = SkillData.EffectType.DAMAGE
 ) -> SkillData:
 	var skill := SkillData.new()
 	skill.skill_name = skill_name
@@ -218,6 +243,7 @@ func _make_skill(
 	skill.stability_damage = stability_damage
 	skill.is_control = is_control
 	skill.area_radius = area_radius
+	skill.effect_type = effect_type
 	return skill
 
 func _connect_signals() -> void:
@@ -229,6 +255,7 @@ func _connect_signals() -> void:
 	action_menu.skill2_pressed.connect(func(): _on_skill_pressed(1))
 	action_menu.wait_pressed.connect(_on_wait_pressed)
 	action_menu.card_pressed.connect(_on_card_pressed)
+	action_menu.extract_pressed.connect(_on_extract_pressed)
 	action_menu.summon_pressed.connect(_on_summon_pressed)
 	action_menu.recall_pressed.connect(_on_recall_pressed)
 	action_menu.option_hovered.connect(_show_tip)
@@ -241,6 +268,7 @@ func _on_unit_ready(unit: Unit) -> void:
 	_active_unit.has_moved = false
 	_capture_turn_start_state(_active_unit)
 	_turn_has_support_action = false
+	_clear_extract_undo()
 	_tick_card_cooldowns()
 	_gain_sync(max(1, 6 - _active_pokemon_count() * 2), "自然回复")
 	_update_capture_marks()
@@ -258,7 +286,7 @@ func _on_unit_ready(unit: Unit) -> void:
 		_battle_state = Enums.BattleState.PLAYER_TURN
 		_action_state = Enums.ActionState.IDLE
 		if _active_unit.data.unit_type == Enums.UnitType.PLAYER:
-			_show_tip("轮到 %s。训练师回合可以刷卡、召唤、回收和封印。" % _active_unit.data.unit_name)
+			_show_tip("轮到 %s。训练师回合可以提取后备能力、刷卡、召唤、回收和封印。" % _active_unit.data.unit_name)
 		elif _trainer_disabled:
 			_show_tip("轮到 %s。训练师已倒下，无法再使用卡牌和切换宝可梦。" % _active_unit.data.unit_name)
 		else:
@@ -276,6 +304,7 @@ func _end_turn() -> void:
 	_selected_skill_index = 0
 	_selected_skill_target = Vector2i(-1, -1)
 	_turn_has_support_action = false
+	_clear_extract_undo()
 	_move_cells.clear()
 	_attack_cells.clear()
 	_card_cells.clear()
@@ -315,7 +344,11 @@ func _on_skill_pressed(skill_index: int) -> void:
 	_action_state = Enums.ActionState.SELECTING_SKILL
 	var skill: SkillData = _active_unit.data.skills[_selected_skill_index]
 	_attack_cells = grid_manager.get_attack_range(_active_unit.grid_pos, skill.atk_range)
-	grid_manager.highlight_cells(_attack_cells, GridManager.COLOR_ATTACK)
+	if skill.effect_type == SkillData.EffectType.HEAL:
+		_attack_cells.append(_active_unit.grid_pos)
+		grid_manager.highlight_cells(_attack_cells, GridManager.COLOR_MOVE)
+	else:
+		grid_manager.highlight_cells(_attack_cells, GridManager.COLOR_ATTACK)
 	action_menu.hide_menu()
 	_show_tip("选择 %s 的目标。技能不消耗 AP，每次行动最多使用一次。" % skill.skill_name)
 
@@ -325,6 +358,9 @@ func _on_wait_pressed() -> void:
 func _cancel_current_selection() -> void:
 	if _battle_state != Enums.BattleState.PLAYER_TURN:
 		return
+	if _action_state == Enums.ActionState.IDLE and _can_undo_trainer_extract():
+		_undo_trainer_extract()
+		return
 	if _active_unit != null \
 	and is_instance_valid(_active_unit) \
 	and _active_unit.has_moved \
@@ -333,7 +369,7 @@ func _cancel_current_selection() -> void:
 			if _action_state != Enums.ActionState.IDLE:
 				_cancel_to_action_menu("已取消选择。")
 			else:
-				_show_tip("已经使用过卡牌、召唤或回收，本回合不能撤回移动。")
+				_show_tip("已经使用过提取、卡牌、召唤或回收，本回合不能撤回移动。")
 			return
 		if _action_state == Enums.ActionState.CONFIRMING_SKILL:
 			_clear_skill_preview()
@@ -360,8 +396,8 @@ func _on_summon_pressed() -> void:
 	if not _is_trainer_turn():
 		_show_tip("只有训练师行动时可以召唤。")
 		return
-	if _reserve_grass_data == null:
-		_show_tip("没有可召唤的后备宝可梦。")
+	if not _reserve_units.has("藤藤兽"):
+		_show_tip("藤藤兽不在后备中，暂时没有可召唤的宝可梦。")
 		return
 	if _sync_points < SUMMON_COST:
 		_show_tip("同步率不足，召唤需要 %d。" % SUMMON_COST)
@@ -391,13 +427,41 @@ func _on_card_pressed(card_id: String) -> void:
 		return
 	_selected_card_id = card_id
 	_action_state = Enums.ActionState.SELECTING_CARD
-	if card_id == "terrain":
-		_card_cells = _cells_in_range(_trainer.grid_pos, 4)
-	else:
-		_card_cells = _cells_in_range(_trainer.grid_pos, CARD_RANGE)
+	_card_cells = _cells_in_range(_trainer.grid_pos, CARD_RANGE)
 	grid_manager.highlight_cells(_card_cells, GridManager.COLOR_ATTACK)
 	action_menu.hide_menu()
 	_show_tip("选择 %s 的目标。" % CARD_DEFS[card_id]["name"])
+
+func _on_extract_pressed(extract_id: String) -> void:
+	if not _is_trainer_turn():
+		_show_tip("只有训练师行动时可以提取后备能力。")
+		return
+	if not EXTRACT_DEFS.has(extract_id):
+		return
+	if _trainer_extract_id == extract_id:
+		_show_tip("训练师已经处于%s状态。" % EXTRACT_DEFS[extract_id]["reserve"])
+		return
+	var extract_def = EXTRACT_DEFS[extract_id]
+	var reserve_name := str(extract_def["reserve"])
+	if not _reserve_units.has(reserve_name):
+		_show_tip("%s 不在后备中，不能提取它的能力。" % reserve_name)
+		return
+	if _sync_points < EXTRACT_COST:
+		_show_tip("同步率不足，提取需要 %d。" % EXTRACT_COST)
+		return
+	var can_undo_extract := not _turn_has_support_action \
+		and not _active_unit.has_moved \
+		and not _active_unit.has_acted
+	if can_undo_extract:
+		_capture_extract_undo_state()
+	else:
+		_clear_extract_undo()
+	_sync_points -= EXTRACT_COST
+	_turn_has_support_action = true
+	_apply_trainer_extract(extract_id)
+	_update_sync_ui()
+	_show_action_menu()
+	_show_tip("训练师提取了 %s：属性和技能已切换，直到下一次提取。" % reserve_name)
 
 func _on_cell_clicked(grid_pos: Vector2i) -> void:
 	if _battle_state != Enums.BattleState.PLAYER_TURN: return
@@ -405,6 +469,7 @@ func _on_cell_clicked(grid_pos: Vector2i) -> void:
 	match _action_state:
 		Enums.ActionState.SELECTING_MOVE:
 			if grid_pos in _move_cells:
+				_clear_extract_undo()
 				grid_manager.move_unit(_active_unit, _active_unit.grid_pos, grid_pos)
 				_active_unit.grid_pos = grid_pos
 				_active_unit.has_moved = true
@@ -444,7 +509,10 @@ func _show_skill_preview(target_pos: Vector2i) -> void:
 	var skill: SkillData = _active_unit.data.skills[_selected_skill_index]
 	var entries := _build_skill_preview(_active_unit, skill, target_pos)
 	if entries.is_empty():
-		_show_tip("这个位置没有可命中的敌人。")
+		if skill.effect_type == SkillData.EffectType.HEAL:
+			_show_tip("这个位置没有可治疗的友方。")
+		else:
+			_show_tip("这个位置没有可命中的敌人。")
 		return
 	_action_state = Enums.ActionState.CONFIRMING_SKILL
 	_selected_skill_target = target_pos
@@ -485,10 +553,24 @@ func _return_to_skill_selection() -> void:
 	_clear_skill_preview()
 	var skill: SkillData = _active_unit.data.skills[_selected_skill_index]
 	_attack_cells = grid_manager.get_attack_range(_active_unit.grid_pos, skill.atk_range)
-	grid_manager.highlight_cells(_attack_cells, GridManager.COLOR_ATTACK)
+	if skill.effect_type == SkillData.EffectType.HEAL:
+		_attack_cells.append(_active_unit.grid_pos)
+		grid_manager.highlight_cells(_attack_cells, GridManager.COLOR_MOVE)
+	else:
+		grid_manager.highlight_cells(_attack_cells, GridManager.COLOR_ATTACK)
 	_show_tip("选择 %s 的目标。" % skill.skill_name)
 
 func _execute_skill_preview(attacker: Unit, skill: SkillData, target_pos: Vector2i, entries: Array[Dictionary]) -> void:
+	if skill.effect_type == SkillData.EffectType.HEAL:
+		var total_heal := 0
+		for entry in entries:
+			var heal_target: Unit = entry["target"]
+			if not is_instance_valid(heal_target) or not heal_target.is_alive():
+				continue
+			total_heal += heal_target.heal(entry["heal_amount"])
+		_show_tip("%s 回复 %d 点 HP。" % [skill.skill_name, total_heal])
+		return
+
 	var total_damage := 0
 	var depleted_count := 0
 	for entry in entries:
@@ -496,7 +578,7 @@ func _execute_skill_preview(attacker: Unit, skill: SkillData, target_pos: Vector
 		if not is_instance_valid(target) or not target.is_alive():
 			continue
 		var was_stability_depleted := target.stability_depleted
-		var actual := target.take_damage(entry["raw_damage"], attacker)
+		var actual := target.take_damage(entry["raw_damage"], attacker, skill.element_type)
 		total_damage += actual
 		if target.is_alive() and target.is_enemy() and target.data.max_stability > 0:
 			target.damage_stability(entry["stability_damage"])
@@ -535,10 +617,6 @@ func _resolve_card(grid_pos: Vector2i) -> void:
 				_pay_card("power")
 				target.set_power_boost(true)
 				_finish_card("%s 的下一次攻击被强化。" % target.data.unit_name)
-		"terrain":
-			_pay_card("terrain")
-			grid_manager.set_terrain(grid_pos, Enums.TerrainType.GRASS)
-			_finish_card("目标格被重构为草地。")
 		"capture":
 			if target != null and target.is_capturable():
 				_pay_card("capture")
@@ -549,6 +627,7 @@ func _resolve_card(grid_pos: Vector2i) -> void:
 func _finish_card(message: String) -> void:
 	_action_state = Enums.ActionState.IDLE
 	grid_manager.clear_highlights()
+	_update_sync_ui()
 	_show_action_menu()
 	_show_tip(message)
 
@@ -562,8 +641,8 @@ func _resolve_recall(grid_pos: Vector2i) -> void:
 		return
 	_sync_points -= RECALL_COST
 	_turn_has_support_action = true
-	if target.data.unit_name == "藤藤兽":
-		_reserve_grass_data = target.data
+	_clear_extract_undo()
+	_reserve_units[target.data.unit_name] = target.data
 	var target_name := target.data.unit_name
 	_remove_unit(target, false)
 	_finish_card("已回收 %s。" % target_name)
@@ -571,16 +650,18 @@ func _resolve_recall(grid_pos: Vector2i) -> void:
 func _summon_grass(grid_pos: Vector2i) -> void:
 	_sync_points -= SUMMON_COST
 	_turn_has_support_action = true
+	_clear_extract_undo()
 	var unit_scene := preload("res://units/Unit.tscn")
-	var unit := _spawn_unit(unit_scene, _reserve_grass_data, grid_pos)
+	var unit_data: UnitData = _reserve_units["藤藤兽"]
+	var unit := _spawn_unit(unit_scene, unit_data, grid_pos)
 	ctb_system.add_unit(unit)
-	_reserve_grass_data = null
+	_reserve_units.erase("藤藤兽")
 	unit.current_ap = 40
 	_action_state = Enums.ActionState.IDLE
 	grid_manager.clear_highlights()
 	_update_enemy_threat_overlay()
-	_show_action_menu()
 	_update_sync_ui()
+	_show_action_menu()
 	_show_tip("藤藤兽入场。同步率回复会因为多一只宝可梦而变慢。")
 
 func _capture_unit(unit: Unit) -> void:
@@ -598,6 +679,66 @@ func _is_trainer_turn() -> bool:
 		and _active_unit.data.unit_type == Enums.UnitType.PLAYER \
 		and not _trainer_disabled
 
+func _apply_trainer_extract(extract_id: String) -> void:
+	if _trainer == null or not is_instance_valid(_trainer) or not EXTRACT_DEFS.has(extract_id):
+		return
+	var extract_def = EXTRACT_DEFS[extract_id]
+	var reserve_name := str(extract_def["reserve"])
+	if not _reserve_units.has(reserve_name):
+		return
+	var reserve_data: UnitData = _reserve_units[reserve_name]
+	var skill_index := int(extract_def["skill_index"])
+	if skill_index < 0 or skill_index >= reserve_data.skills.size():
+		return
+	_trainer_extract_id = extract_id
+	_trainer.data.set_element_types(reserve_data.get_element_types())
+	_trainer.data.skills.clear()
+	_trainer.data.skills.append(reserve_data.skills[skill_index])
+	_trainer.refresh_status()
+
+func _capture_extract_undo_state() -> void:
+	if _trainer == null or not is_instance_valid(_trainer):
+		_clear_extract_undo()
+		return
+	_extract_undo_snapshot = {
+		"sync_points": _sync_points,
+		"extract_id": _trainer_extract_id,
+		"element_types": _trainer.data.get_element_types(),
+		"skills": _trainer.data.skills.duplicate()
+	}
+	_extract_undo_available = true
+
+func _can_undo_trainer_extract() -> bool:
+	return _extract_undo_available \
+		and _active_unit != null \
+		and is_instance_valid(_active_unit) \
+		and _active_unit.data.unit_type == Enums.UnitType.PLAYER \
+		and not _active_unit.has_moved \
+		and not _active_unit.has_acted \
+		and _extract_undo_snapshot.has("sync_points")
+
+func _undo_trainer_extract() -> void:
+	if _trainer == null or not is_instance_valid(_trainer):
+		_clear_extract_undo()
+		return
+	_sync_points = int(_extract_undo_snapshot["sync_points"])
+	_trainer_extract_id = str(_extract_undo_snapshot["extract_id"])
+	var restored_element_types: Array[int] = []
+	for element_type_value in _extract_undo_snapshot["element_types"]:
+		restored_element_types.append(int(element_type_value))
+	_trainer.data.set_element_types(restored_element_types)
+	_trainer.data.skills.clear()
+	for skill in _extract_undo_snapshot["skills"]:
+		_trainer.data.skills.append(skill)
+	_trainer.refresh_status()
+	_turn_has_support_action = false
+	_clear_extract_undo()
+	_cancel_to_action_menu("已取消本次能力提取，同步率已返还。")
+
+func _clear_extract_undo() -> void:
+	_extract_undo_available = false
+	_extract_undo_snapshot.clear()
+
 func _can_pay_card(card_id: String) -> bool:
 	var card_def = CARD_DEFS[card_id]
 	if _sync_points < card_def["cost"]:
@@ -613,6 +754,7 @@ func _pay_card(card_id: String) -> void:
 	_sync_points -= card_def["cost"]
 	_card_cooldowns[card_id] = card_def["cooldown"]
 	_turn_has_support_action = true
+	_clear_extract_undo()
 	_update_sync_ui()
 
 func _tick_card_cooldowns() -> void:
@@ -642,12 +784,13 @@ func _update_sync_ui() -> void:
 		var left: int = _card_cooldowns.get(card_id, 0)
 		if left > 0:
 			cooldown_text.append("%s:%d" % [CARD_DEFS[card_id]["name"], left])
-	var trainer_state := "离线" if _trainer_disabled else "在线"
-	_sync_label.text = "同步率 %d/%d\n训练师 %s  场上宝可梦 %d\n获得: 自然+%d 训攻+8 宝攻+5 稳0+12 捕+18\n冷却 %s" % [
+	var trainer_form := "离线" if _trainer_disabled else _get_trainer_form_summary()
+	_sync_label.text = "同步率 %d/%d\n形态 %s  宝%d 后备 %s\n获得: 自然+%d 训攻+8 宝攻+5 稳0+12 捕+18\n冷却 %s" % [
 		_sync_points,
 		_max_sync_points,
-		trainer_state,
+		trainer_form,
 		_active_pokemon_count(),
+		_get_reserve_summary(),
 		max(1, 6 - _active_pokemon_count() * 2),
 		_join_strings(cooldown_text, "、") if cooldown_text.size() > 0 else "无"
 	]
@@ -674,6 +817,20 @@ func _join_strings(parts: Array, delimiter: String) -> String:
 			text += delimiter
 		text += str(parts[i])
 	return text
+
+func _get_reserve_summary() -> String:
+	if _reserve_units.is_empty():
+		return "无"
+	var names: Array[String] = []
+	for reserve_name in _reserve_units.keys():
+		names.append(str(reserve_name))
+	names.sort()
+	return _join_strings(names, "、")
+
+func _get_trainer_form_summary() -> String:
+	if _trainer_extract_id == "" or not EXTRACT_DEFS.has(_trainer_extract_id):
+		return "基础"
+	return str(EXTRACT_DEFS[_trainer_extract_id]["reserve"])
 
 func _show_tip(text: String) -> void:
 	if is_instance_valid(_tip_label):
@@ -764,6 +921,7 @@ func _update_action_menu_content() -> void:
 		skill_names.append(skill.skill_name)
 	action_menu.set_skill_labels(skill_names)
 	action_menu.set_card_labels(_build_card_labels())
+	action_menu.set_extract_labels(_build_extract_labels())
 	action_menu.set_option_descriptions(_build_action_descriptions())
 
 func _build_card_labels() -> Dictionary:
@@ -774,6 +932,19 @@ func _build_card_labels() -> Dictionary:
 			labels[card_id] = "%sCD%d" % [_get_card_short_name(card_id), left]
 		else:
 			labels[card_id] = "%s%d" % [_get_card_short_name(card_id), CARD_DEFS[card_id]["cost"]]
+	return labels
+
+func _build_extract_labels() -> Dictionary:
+	var labels := {}
+	for extract_id in EXTRACT_DEFS:
+		var label := _get_extract_short_name(extract_id)
+		var reserve_name := str(EXTRACT_DEFS[extract_id]["reserve"])
+		if _trainer_extract_id == extract_id:
+			labels[extract_id] = label + "*"
+		elif not _reserve_units.has(reserve_name):
+			labels[extract_id] = label + "离"
+		else:
+			labels[extract_id] = "%s%d" % [label, EXTRACT_COST]
 	return labels
 
 func _build_action_descriptions() -> Dictionary:
@@ -791,6 +962,8 @@ func _build_action_descriptions() -> Dictionary:
 	descriptions["recall"] = "回收：消耗 %d 同步率，收回训练师 %d 格内的己方宝可梦，保留 HP 和 AP 状态。" % [RECALL_COST, CARD_RANGE]
 	for card_id in CARD_DEFS:
 		descriptions[card_id] = _describe_card(card_id)
+	for extract_id in EXTRACT_DEFS:
+		descriptions["extract_" + extract_id] = _describe_extract(extract_id)
 	return descriptions
 
 func _describe_skill(skill: SkillData) -> String:
@@ -799,9 +972,13 @@ func _describe_skill(skill: SkillData) -> String:
 	if skill.area_radius > 0:
 		target_text = "目标格周围 %d 格范围" % skill.area_radius
 	parts.append("%s：射程 %d，%s。" % [skill.skill_name, skill.atk_range, target_text])
-	parts.append("基础伤害 %d + %s 攻击 %d；确认命中后自动结束回合。" % [skill.damage, _active_unit.data.unit_name, _active_unit.data.attack])
-	if skill.stability_damage > 0:
+	if skill.effect_type == SkillData.EffectType.HEAL:
+		parts.append("基础回复 %d + %s 攻击 %d；可选择自己或友方，确认后自动结束回合。" % [skill.damage, _active_unit.data.unit_name, _active_unit.data.attack])
+	elif skill.stability_damage > 0:
+		parts.append("基础伤害 %d + %s 攻击 %d；确认命中后自动结束回合。" % [skill.damage, _active_unit.data.unit_name, _active_unit.data.attack])
 		parts.append("稳定度伤害 %d；属性克制时翻倍，控制技能会额外增加。" % skill.stability_damage)
+	else:
+		parts.append("基础伤害 %d + %s 攻击 %d；确认命中后自动结束回合。" % [skill.damage, _active_unit.data.unit_name, _active_unit.data.attack])
 	if skill.is_control:
 		parts.append("控制技能。")
 	return _join_strings(parts, "\n")
@@ -824,6 +1001,25 @@ func _describe_card(card_id: String) -> String:
 		status
 	]
 
+func _describe_extract(extract_id: String) -> String:
+	var extract_def = EXTRACT_DEFS[extract_id]
+	var reserve_name := str(extract_def["reserve"])
+	var status := "可用"
+	if _trainer_extract_id == extract_id:
+		status = "当前形态"
+	elif not _reserve_units.has(reserve_name):
+		status = "%s 不在后备" % reserve_name
+	elif _sync_points < EXTRACT_COST:
+		status = "同步率不足"
+	return "%s：消耗 %d，同步率当前 %d/%d。%s\n状态：%s" % [
+		extract_def["name"],
+		EXTRACT_COST,
+		_sync_points,
+		_max_sync_points,
+		extract_def["effect"],
+		status
+	]
+
 func _get_card_short_name(card_id: String) -> String:
 	match card_id:
 		"haste":
@@ -832,12 +1028,21 @@ func _get_card_short_name(card_id: String) -> String:
 			return "护盾"
 		"power":
 			return "火力"
-		"terrain":
-			return "草地"
 		"capture":
 			return "封印"
 		_:
 			return str(card_id)
+
+func _get_extract_short_name(extract_id: String) -> String:
+	match extract_id:
+		"grass":
+			return "提藤"
+		"water":
+			return "提水"
+		"spark":
+			return "提电"
+		_:
+			return str(extract_id)
 
 func _cells_in_range(origin: Vector2i, range_value: int) -> Array[Vector2i]:
 	var result: Array[Vector2i] = []
@@ -889,6 +1094,8 @@ func _get_max_skill_range(unit: Unit) -> int:
 	var max_range := 0
 	for skill_resource in unit.data.skills:
 		var skill: SkillData = skill_resource
+		if skill.effect_type == SkillData.EffectType.HEAL:
+			continue
 		max_range = max(max_range, skill.atk_range)
 	return max_range
 
@@ -896,10 +1103,22 @@ func _build_skill_preview(attacker: Unit, skill: SkillData, target_pos: Vector2i
 	var result: Array[Dictionary] = []
 	for cell in _get_skill_area_cells(skill, target_pos):
 		var target := grid_manager.get_unit_at(cell)
-		if target == null or not target.is_enemy() or not target.is_alive():
+		if target == null or not target.is_alive():
+			continue
+		if skill.effect_type == SkillData.EffectType.HEAL:
+			if not target.is_ally():
+				continue
+			var raw_heal := _get_raw_skill_heal(attacker, skill)
+			var heal_amount: int = max(min(raw_heal, target.data.max_hp - target.current_hp), 0)
+			result.append({
+				"target": target,
+				"heal_amount": heal_amount
+			})
+			continue
+		if not target.is_enemy():
 			continue
 		var raw_damage := _get_raw_skill_damage(attacker, skill)
-		var hp_damage := _get_expected_hp_damage(target, raw_damage)
+		var hp_damage := _get_expected_hp_damage(target, raw_damage, skill.element_type)
 		var stability_damage := 0
 		if target.data.max_stability > 0 and not target.stability_depleted:
 			if target.current_hp - hp_damage > 0:
@@ -923,20 +1142,26 @@ func _get_raw_skill_damage(attacker: Unit, skill: SkillData) -> int:
 		raw_damage = int(raw_damage * 1.5)
 	return raw_damage
 
-func _get_expected_hp_damage(target: Unit, raw_damage: int) -> int:
+func _get_raw_skill_heal(attacker: Unit, skill: SkillData) -> int:
+	return max(skill.damage + attacker.data.attack, 1)
+
+func _get_expected_hp_damage(target: Unit, raw_damage: int, attack_type: int) -> int:
 	var damage_after_defense: int = max(raw_damage - target.data.defense, 1)
+	damage_after_defense = TypeChartUtil.apply_damage_multiplier(damage_after_defense, attack_type, target.data.get_element_types())
 	return max(damage_after_defense - target.shield, 0)
 
 func _get_expected_stability_damage(skill: SkillData, target: Unit) -> int:
 	var stability_damage := skill.stability_damage
-	if _is_element_advantage(skill.element_type, target.data.element_type):
-		stability_damage *= 2
+	var multiplier: float = TypeChartUtil.get_damage_multiplier(skill.element_type, target.data.get_element_types())
+	if multiplier > 1.0:
+		stability_damage *= int(multiplier)
 	if skill.is_control:
 		stability_damage += 8
 	return stability_damage
 
 func _show_preview_area(skill: SkillData, target_pos: Vector2i) -> void:
-	grid_manager.highlight_cells(_attack_cells, GridManager.COLOR_ATTACK)
+	var range_color := GridManager.COLOR_MOVE if skill.effect_type == SkillData.EffectType.HEAL else GridManager.COLOR_ATTACK
+	grid_manager.highlight_cells(_attack_cells, range_color)
 	grid_manager.highlight_cells(_get_skill_area_cells(skill, target_pos), GridManager.COLOR_CURSOR, false)
 
 func _show_preview_panel(attacker: Unit, skill: SkillData, entries: Array[Dictionary]) -> void:
@@ -945,6 +1170,22 @@ func _show_preview_panel(attacker: Unit, skill: SkillData, entries: Array[Dictio
 	lines.append("%s -> %s" % [attacker.data.unit_name, skill.skill_name])
 	if skill.area_radius > 0:
 		lines.append("范围命中 %d 个目标" % entries.size())
+	if skill.effect_type == SkillData.EffectType.HEAL:
+		var total_heal := 0
+		for entry in entries:
+			var heal_target: Unit = entry["target"]
+			var heal_amount: int = entry["heal_amount"]
+			total_heal += heal_amount
+			lines.append("%s HP %d>%d  回复%d" % [
+				heal_target.data.unit_name,
+				heal_target.current_hp,
+				min(heal_target.current_hp + heal_amount, heal_target.data.max_hp),
+				heal_amount
+			])
+		lines.append("总回复 %d" % total_heal)
+		_preview_label.text = _join_strings(lines, "\n")
+		_preview_panel.visible = true
+		return
 	for entry in entries:
 		var target: Unit = entry["target"]
 		var hp_damage: int = entry["hp_damage"]
@@ -959,6 +1200,9 @@ func _show_preview_panel(attacker: Unit, skill: SkillData, entries: Array[Dictio
 		]
 		if stability_damage > 0:
 			line += " 稳-%d" % min(stability_damage, target.current_stability)
+		var relation := _get_element_relation_text(skill.element_type, target.data.get_element_types())
+		if relation != "":
+			line += " " + relation
 		if hp_damage == 0 and target.shield > 0:
 			line += " 护盾吸收"
 		lines.append(line)
@@ -973,15 +1217,20 @@ func _show_preview_markers(entries: Array[Dictionary]) -> void:
 	for entry in entries:
 		var target: Unit = entry["target"]
 		var marker := Label.new()
-		var marker_parts: Array[String] = ["-" + str(entry["hp_damage"])]
-		if entry["stability_damage"] > 0:
+		var marker_parts: Array[String] = []
+		if entry.has("heal_amount"):
+			marker_parts.append("+" + str(entry["heal_amount"]))
+			marker.modulate = Color(0.38, 0.9, 0.58, 1.0)
+		else:
+			marker_parts.append("-" + str(entry["hp_damage"]))
+			marker.modulate = Color(1.0, 0.82, 0.32, 1.0)
+		if entry.has("stability_damage") and entry["stability_damage"] > 0:
 			marker_parts.append("稳-" + str(min(int(entry["stability_damage"]), target.current_stability)))
 		marker.text = _join_strings(marker_parts, "\n")
 		marker.position = target.position + Vector2(-18, -42)
 		marker.size = Vector2(48, 24)
 		marker.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		marker.add_theme_font_size_override("font_size", 9)
-		marker.modulate = Color(1.0, 0.82, 0.32, 1.0)
 		add_child(marker)
 		_skill_preview_markers.append(marker)
 
@@ -996,10 +1245,8 @@ func _clear_preview_markers() -> void:
 			marker.queue_free()
 	_skill_preview_markers.clear()
 
-func _is_element_advantage(attack_type: int, target_type: int) -> bool:
-	return (attack_type == Enums.ElementType.FIRE and target_type == Enums.ElementType.GRASS) \
-		or (attack_type == Enums.ElementType.GRASS and target_type == Enums.ElementType.WATER) \
-		or (attack_type == Enums.ElementType.WATER and target_type == Enums.ElementType.FIRE)
+func _get_element_relation_text(attack_type: int, target_types: Array[int]) -> String:
+	return TypeChartUtil.get_multiplier_text(TypeChartUtil.get_damage_multiplier(attack_type, target_types))
 
 func _update_capture_marks() -> void:
 	for unit in _all_units:

@@ -1,6 +1,8 @@
 class_name Unit
 extends Node2D
 
+const TypeChartUtil = preload("res://core/TypeChart.gd")
+
 # 信号
 signal died(unit: Unit)
 signal hp_changed(current_hp: int, max_hp: int)
@@ -107,8 +109,9 @@ func clear_pending_charge_cells() -> void:
 	emit_signal("status_changed", self)
 
 # 受到伤害
-func take_damage(raw_damage: int, attacker: Unit = null) -> int:
+func take_damage(raw_damage: int, attacker: Unit = null, attack_type: int = Enums.ElementType.NONE) -> int:
 	var actual: int = max(raw_damage - data.defense, 1)
+	actual = TypeChartUtil.apply_damage_multiplier(actual, attack_type, data.get_element_types())
 	if shield > 0:
 		var blocked: int = min(shield, actual)
 		shield -= blocked
@@ -136,6 +139,23 @@ func take_damage(raw_damage: int, attacker: Unit = null) -> int:
 func add_shield(amount: int) -> void:
 	shield += amount
 	_update_label()
+
+func heal(amount: int) -> int:
+	if amount <= 0 or current_hp <= 0:
+		return 0
+	var before := current_hp
+	current_hp = min(current_hp + amount, data.max_hp)
+	var healed := current_hp - before
+	if healed > 0:
+		emit_signal("hp_changed", current_hp, data.max_hp)
+		_update_hp_bar()
+	_update_label()
+	return healed
+
+func refresh_status() -> void:
+	_update_label()
+	_update_hp_bar()
+	emit_signal("status_changed", self)
 
 func damage_stability(amount: int) -> void:
 	if data.max_stability <= 0 or stability_depleted:
@@ -175,6 +195,9 @@ func _update_label() -> void:
 	if not is_instance_valid(_label):
 		return
 	var parts: Array[String] = [data.unit_name, str(current_hp) + "/" + str(data.max_hp)]
+	var type_text: String = TypeChartUtil.get_type_names(data.get_element_types())
+	if type_text != "无":
+		parts.append("属" + type_text)
 	if data.max_stability > 0:
 		var stability_text := "0" if stability_depleted else str(current_stability)
 		parts.append("稳" + stability_text)

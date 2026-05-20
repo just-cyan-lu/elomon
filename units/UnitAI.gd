@@ -42,7 +42,7 @@ static func run(enemy: Unit, grid_manager: GridManager, all_units: Array[Unit]) 
 	
 	if target.grid_pos in attack_cells:
 		var damage := skill.damage + enemy.data.attack
-		target.take_damage(damage, enemy)
+		target.take_damage(damage, enemy, skill.element_type)
 
 static func _start_charge_attack(enemy: Unit, grid_manager: GridManager, target: Unit) -> void:
 	enemy.set_pending_charge_cells(_get_charge_cells(target.grid_pos, enemy.data.charge_radius, grid_manager))
@@ -51,7 +51,7 @@ static func _start_charge_attack(enemy: Unit, grid_manager: GridManager, target:
 static func _resolve_charge_attack(enemy: Unit, grid_manager: GridManager, all_units: Array[Unit]) -> void:
 	for unit in all_units:
 		if unit.is_ally() and unit.is_alive() and unit.grid_pos in enemy.pending_charge_cells:
-			unit.take_damage(enemy.data.charge_damage, enemy)
+			unit.take_damage(enemy.data.charge_damage, enemy, enemy.data.element_type)
 	enemy.clear_pending_charge_cells()
 	grid_manager.clear_warning_cells()
 

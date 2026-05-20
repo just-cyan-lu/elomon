@@ -1,7 +1,8 @@
 # 架构详解
 
-## 全局自动加载（`core/`）
+## 全局与核心工具（`core/`）
 - `Enums.gd` — 所有共享枚举（`UnitType`、`ElementType`、`TerrainType`、`BattleState`、`ActionState`）以及网格/CTB 常量（`GRID_COLS=20`、`GRID_ROWS=20`、`CELL_SIZE=32`、`MAX_AP=100`）。全局以 `Enums.*` 引用。
+- `TypeChart.gd` — 属性倍率表与工具函数，通过 `preload("res://core/TypeChart.gd")` 使用。当前 MVP 使用火 > 草 > 水 > 火，克制 2 倍，抵抗 0.5 倍；单位属性列表逐项连乘，未来双属性可自然得到 4 倍克制伤害。
 - `GameManager.gd` — 目前是空壳，未来的全局状态放这里。
 
 ## 战斗流程（`battle/`）
@@ -15,9 +16,10 @@
 
 ## MVP 战斗系统
 当前分支实现了 `.claude/mvp_design.md` 的第一版样板战：
-- 训练师、火狐兽开场在场，藤藤兽作为后备召唤单位。
-- 敌方包含近战小怪、远程小怪和可捕捉厚血大怪。
-- 训练师回合可消耗同步率使用固定指令卡：高速组件、小型护盾、火力插件、地形重构、空白封印卡；也可召唤或回收藤藤兽。高速组件提供宝可梦下一次移动 +2，而不是补 AP。
+- 训练师、火狐兽开场在场，藤藤兽、水跃兽、电花鼠位于后备名单；藤藤兽当前可被召唤，水跃兽和电花鼠先作为提取能力来源。
+- 敌方包含火属性近战、草属性近战、水属性远程和草属性可捕捉厚血大怪。
+- 训练师回合可消耗同步率使用固定指令卡：高速组件、小型护盾、火力插件、空白封印卡；也可召唤或回收藤藤兽。高速组件提供宝可梦下一次移动 +2，而不是补 AP。
+- 后备能力提取由 `Battle.gd` 的 `_reserve_units` 和 `_trainer_extract_id` 管理。提取需要对应宝可梦仍在后备中，不消耗后备宝可梦本体；提取后训练师会切换属性，并把技能列表替换为对应宝可梦技能，直到下一次提取。
 - 同步率显示在战斗 UI 上，会随行动自然回复，也会因训练师/宝可梦攻击、稳定度归零、捕捉而增加；HUD 常驻显示主要获得规则，每次实际获得同步率时，HUD 附近会显示短暂的 `+同步率` 反馈。
 - 可捕捉厚血大怪拥有稳定度。克制或控制技能削减稳定度；稳定度为 0 且低血时可被训练师封印。稳定度归零不会让敌人跳过行动，也不设置捕捉倒计时。
 - 厚血大怪有低频蓄力攻击。蓄力时会在地图上显示预警格，下一次大怪行动时对预警格内的己方单位造成较低伤害。
@@ -37,17 +39,17 @@
 项目视口为 `640×360`。由于 20×20 网格按 `CELL_SIZE=32` 计算为 `640×640`，当前首屏无法显示完整战场；后续计划通过相机滚动查看完整地图。
 
 ## 单位（`units/`）
-- `Unit.gd`（`class_name Unit`）— 运行时状态：`current_hp`、`current_ap`、`grid_pos`、`has_acted`、`has_moved`、护盾、稳定度、可封印提示、下次攻击强化、下次移动加成、上一次攻击者、蓄力预警格。视觉表现由代码动态创建的 `ColorRect`、血条和 `Label` 节点充当（美术资源到位前的占位符）。阵营色固定为我方柔和蓝、敌方柔和红、中立/野生柔和黄，受伤时会闪白并显示短暂伤害数字。
-- `UnitData.gd`（`class_name UnitData`，继承 `Resource`）— 静态数据：属性、颜色、技能列表、元素属性、最大稳定度。旧实例位于 `units/data/tres/`，MVP 样板战当前由 `Battle.gd` 动态生成。
+- `Unit.gd`（`class_name Unit`）— 运行时状态：`current_hp`、`current_ap`、`grid_pos`、`has_acted`、`has_moved`、护盾、稳定度、可封印提示、下次攻击强化、下次移动加成、上一次攻击者、蓄力预警格。提供 `take_damage()`、`heal()`、护盾、属性伤害倍率与稳定度变更等战斗接口。视觉表现由代码动态创建的 `ColorRect`、血条和 `Label` 节点充当（美术资源到位前的占位符）。阵营色固定为我方柔和蓝、敌方柔和红、中立/野生柔和黄，受伤时会闪白并显示短暂伤害数字。
+- `UnitData.gd`（`class_name UnitData`，继承 `Resource`）— 静态数据：属性、颜色、技能列表、主元素属性、元素属性列表、最大稳定度。`element_type` 保留为主属性兼容字段，`element_types` 用于未来双属性；为空时回退到主属性。旧实例位于 `units/data/tres/`，MVP 样板战当前由 `Battle.gd` 动态生成。
 - `UnitAI.gd`（`class_name UnitAI`，继承 `RefCounted`）— 无状态静态 AI。`run()` 优先反击上一次攻击自己的我方单位；没有可用仇恨目标时，寻找最近我方单位，移动靠近后若在攻击范围内则发动攻击。厚血大怪每隔数次行动可能进入蓄力状态，下一次行动结算预警格伤害。
 
 ## 技能（`skills/`）
-- `SkillData.gd`（`class_name SkillData`，继承 `Resource`）— 字段：`skill_name`、`damage`、`atk_range`、预留的 `ap_cost`、元素属性、稳定度伤害、是否控制技能、`area_radius`。MVP 中技能不消耗 AP，`ap_cost` 暂不参与战斗结算。`area_radius=0` 表示单体，`>0` 表示目标格周围菱形范围。旧实例位于 `skills/tres/`，MVP 样板战当前由 `Battle.gd` 动态生成。
-- 伤害公式：`actual_damage = max(skill.damage + unit.attack - target.defense, 1)`
+- `SkillData.gd`（`class_name SkillData`，继承 `Resource`）— 字段：`skill_name`、`damage`、`atk_range`、预留的 `ap_cost`、元素属性、稳定度伤害、是否控制技能、`area_radius`、`effect_type`。MVP 中技能不消耗 AP，`ap_cost` 暂不参与战斗结算。`effect_type=DAMAGE` 表示攻击敌人，`HEAL` 表示治疗友方。`area_radius=0` 表示单体，`>0` 表示目标格周围菱形范围。旧实例位于 `skills/tres/`，MVP 样板战当前由 `Battle.gd` 动态生成。
+- 伤害公式：先计算 `max(skill.damage + unit.attack - target.defense, 1)`，再通过 `TypeChart` 按目标属性列表逐项连乘。克制为 2 倍，抵抗为 0.5 倍；未来双属性若同时被克制会得到 4 倍。稳定度使用同一属性倍率的克制部分，再叠加控制加成。
 - 玩家单位可通过行动菜单使用技能 1 或技能 2；敌方 AI 仍使用单位技能列表中的第一个技能。
 
 ## UI（`ui/`）
-- `ActionMenu.gd` — 悬浮在当前行动单位旁，发出移动、技能、指令卡、召唤、回收、等待等信号。MVP 中按钮由脚本补充创建；菜单会压缩按钮高度并限制在视口内，避免长菜单超出屏幕。菜单按钮会根据当前单位显示真实技能名和卡牌消耗，鼠标悬停时通过 `option_hovered(description)` 让 `Battle.gd` 更新顶部说明。
+- `ActionMenu.gd` — 悬浮在当前行动单位旁，发出移动、技能、指令卡、提取、召唤、回收、等待等信号。MVP 中按钮由脚本补充创建；菜单会压缩按钮高度并限制在视口内，避免长菜单超出屏幕。菜单按钮会根据当前单位显示真实技能名、卡牌消耗、冷却、当前提取形态或后备离场状态，鼠标悬停时通过 `option_hovered(description)` 让 `Battle.gd` 更新顶部说明。
 - `Battle.gd` 动态创建轻量伤害预览面板。预览面板显示技能名、命中目标、HP 变化、伤害、稳定度变化和总伤害；范围技能会列出所有受影响敌人，并在地图上显示预览数字。
 - `CTBBar.gd` — 提供两种可切换视图：速度跑条视图和行动轴视图。速度跑条视图中每个单位对应一组标签+进度条，每帧从 `unit.current_ap` 更新显示；CTB 暂停时会显示 `WAIT`，当前可行动单位显示 `READY` 并高亮进度条，下一位行动单位显示 `NEXT`。行动轴视图会预测未来数次行动顺序，速度快的单位允许重复出现。
 - `DamageNumber.gd` / `DamageNumber.tscn` — 目前仍是占位脚本和场景，尚未接入伤害表现。
