@@ -951,6 +951,7 @@ func _update_action_menu_content() -> void:
 		var skill: SkillData = skill_resource
 		skill_names.append(skill.skill_name)
 	action_menu.set_skill_labels(skill_names)
+	action_menu.set_context(_is_trainer_turn())
 	action_menu.set_card_labels(_build_card_labels())
 	action_menu.set_summon_labels(_build_summon_labels())
 	action_menu.set_extract_labels(_build_extract_labels())
@@ -994,6 +995,9 @@ func _build_action_descriptions() -> Dictionary:
 	var descriptions := {}
 	descriptions["move"] = "移动：最多 %d 格。移动后仍可使用技能；使用技能后会自动结束回合。" % _active_unit.get_current_move_range()
 	descriptions["wait"] = "待机：不移动、不使用技能，直接结束当前单位行动。"
+	descriptions["group_cards"] = "指令卡：使用同步率强化、保护、回收或封印目标。"
+	descriptions["group_summon"] = "召唤：选择一只仍在后备中的宝可梦入场。召唤会让对应提取暂时不可用。"
+	descriptions["group_extract"] = "提取：切换训练师当前属性和技能，持续到下一次提取。未行动前可按 Esc 撤销。"
 	for i in range(2):
 		var key := "skill%d" % (i + 1)
 		if i < _active_unit.data.skills.size():

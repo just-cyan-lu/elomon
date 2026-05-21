@@ -16,10 +16,15 @@ var _btn_skill2: Button
 var _btn_wait: Button
 var _btn_summon: Button
 var _btn_recall: Button
+var _btn_group_cards: Button
+var _btn_group_summon: Button
+var _btn_group_extract: Button
 var _card_buttons := {}
 var _extract_buttons := {}
 var _summon_buttons := {}
 var _descriptions := {}
+var _trainer_group := "cards"
+var _is_trainer_context := false
 
 func _ready() -> void:
 	$PanelContainer/VBoxContainer.add_theme_constant_override("separation", 1)
@@ -39,6 +44,9 @@ func _ready() -> void:
 	_bind_hover(_btn_skill1, "skill1")
 	_bind_hover(_btn_wait, "wait")
 	_btn_skill2 = _add_button("技能2", "skill2", func(): emit_signal("skill2_pressed"))
+	_btn_group_cards = _add_button("指令卡", "group_cards", func(): _set_trainer_group("cards"))
+	_btn_group_summon = _add_button("召唤", "group_summon", func(): _set_trainer_group("summon"))
+	_btn_group_extract = _add_button("提取", "group_extract", func(): _set_trainer_group("extract"))
 	_btn_summon = _add_button("召藤", "summon_grass", func(): emit_signal("summon_pressed", "grass"))
 	_btn_recall = _add_button("回收", "recall", func(): emit_signal("recall_pressed"))
 	_summon_buttons["grass"] = _btn_summon
@@ -53,6 +61,7 @@ func _ready() -> void:
 	_extract_buttons["water"] = _add_button("提水", "extract_water", func(): emit_signal("extract_pressed", "water"))
 	_extract_buttons["electric"] = _add_button("提电", "extract_electric", func(): emit_signal("extract_pressed", "electric"))
 	_extract_buttons["ice"] = _add_button("提冰", "extract_ice", func(): emit_signal("extract_pressed", "ice"))
+	_sync_context_visibility()
 	visible = false   # 默认隐藏
 
 func _add_button(label: String, key: String, callback: Callable) -> Button:
@@ -95,8 +104,36 @@ func set_extract_labels(extract_labels: Dictionary) -> void:
 		if extract_labels.has(extract_id):
 			_extract_buttons[extract_id].text = extract_labels[extract_id]
 
+func set_context(is_trainer_context: bool) -> void:
+	_is_trainer_context = is_trainer_context
+	_sync_context_visibility()
+
 func set_option_descriptions(descriptions: Dictionary) -> void:
 	_descriptions = descriptions.duplicate()
+
+func _set_trainer_group(group_name: String) -> void:
+	_trainer_group = group_name
+	_sync_context_visibility()
+
+func _sync_context_visibility() -> void:
+	var group_buttons := [_btn_group_cards, _btn_group_summon, _btn_group_extract]
+	for button in group_buttons:
+		if button != null:
+			button.visible = _is_trainer_context
+	if _btn_recall != null:
+		_btn_recall.visible = _is_trainer_context and _trainer_group == "cards"
+	for card_id in _card_buttons:
+		_card_buttons[card_id].visible = _is_trainer_context and _trainer_group == "cards"
+	for summon_id in _summon_buttons:
+		_summon_buttons[summon_id].visible = _is_trainer_context and _trainer_group == "summon"
+	for extract_id in _extract_buttons:
+		_extract_buttons[extract_id].visible = _is_trainer_context and _trainer_group == "extract"
+	if _btn_group_cards != null:
+		_btn_group_cards.text = "[指令]" if _trainer_group == "cards" else "指令"
+	if _btn_group_summon != null:
+		_btn_group_summon.text = "[召唤]" if _trainer_group == "summon" else "召唤"
+	if _btn_group_extract != null:
+		_btn_group_extract.text = "[提取]" if _trainer_group == "extract" else "提取"
 
 # 在指定像素位置显示菜单
 func show_at(pixel_pos: Vector2) -> void:
