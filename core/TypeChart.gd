@@ -7,15 +7,47 @@ const RESIST_MULTIPLIER := 0.5
 const MATCHUPS := {
 	Enums.ElementType.FIRE: {
 		Enums.ElementType.GRASS: ADVANTAGE_MULTIPLIER,
+		Enums.ElementType.ICE: ADVANTAGE_MULTIPLIER,
 		Enums.ElementType.WATER: RESIST_MULTIPLIER,
+		Enums.ElementType.GROUND: RESIST_MULTIPLIER,
 	},
 	Enums.ElementType.WATER: {
 		Enums.ElementType.FIRE: ADVANTAGE_MULTIPLIER,
+		Enums.ElementType.GROUND: ADVANTAGE_MULTIPLIER,
 		Enums.ElementType.GRASS: RESIST_MULTIPLIER,
+		Enums.ElementType.ELECTRIC: RESIST_MULTIPLIER,
 	},
 	Enums.ElementType.GRASS: {
 		Enums.ElementType.WATER: ADVANTAGE_MULTIPLIER,
+		Enums.ElementType.GROUND: ADVANTAGE_MULTIPLIER,
 		Enums.ElementType.FIRE: RESIST_MULTIPLIER,
+		Enums.ElementType.ICE: RESIST_MULTIPLIER,
+		Enums.ElementType.FLYING: RESIST_MULTIPLIER,
+	},
+	Enums.ElementType.ICE: {
+		Enums.ElementType.GRASS: ADVANTAGE_MULTIPLIER,
+		Enums.ElementType.FLYING: ADVANTAGE_MULTIPLIER,
+		Enums.ElementType.GROUND: ADVANTAGE_MULTIPLIER,
+		Enums.ElementType.FIRE: RESIST_MULTIPLIER,
+	},
+	Enums.ElementType.ELECTRIC: {
+		Enums.ElementType.WATER: ADVANTAGE_MULTIPLIER,
+		Enums.ElementType.FLYING: ADVANTAGE_MULTIPLIER,
+		Enums.ElementType.GROUND: RESIST_MULTIPLIER,
+	},
+	Enums.ElementType.FLYING: {
+		Enums.ElementType.GRASS: ADVANTAGE_MULTIPLIER,
+		Enums.ElementType.GROUND: ADVANTAGE_MULTIPLIER,
+		Enums.ElementType.ELECTRIC: RESIST_MULTIPLIER,
+		Enums.ElementType.ICE: RESIST_MULTIPLIER,
+	},
+	Enums.ElementType.GROUND: {
+		Enums.ElementType.FIRE: ADVANTAGE_MULTIPLIER,
+		Enums.ElementType.ELECTRIC: ADVANTAGE_MULTIPLIER,
+		Enums.ElementType.ICE: ADVANTAGE_MULTIPLIER,
+		Enums.ElementType.WATER: RESIST_MULTIPLIER,
+		Enums.ElementType.GRASS: RESIST_MULTIPLIER,
+		Enums.ElementType.FLYING: RESIST_MULTIPLIER,
 	},
 }
 
@@ -48,6 +80,14 @@ static func get_type_name(element_type: int) -> String:
 			return "水"
 		Enums.ElementType.GRASS:
 			return "草"
+		Enums.ElementType.ICE:
+			return "冰"
+		Enums.ElementType.ELECTRIC:
+			return "雷"
+		Enums.ElementType.FLYING:
+			return "飞"
+		Enums.ElementType.GROUND:
+			return "地"
 		_:
 			return "无"
 

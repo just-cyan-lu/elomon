@@ -6,7 +6,7 @@ signal skill2_pressed
 signal wait_pressed
 signal card_pressed(card_id: String)
 signal extract_pressed(extract_id: String)
-signal summon_pressed
+signal summon_pressed(summon_id: String)
 signal recall_pressed
 signal option_hovered(description: String)
 
@@ -18,6 +18,7 @@ var _btn_summon: Button
 var _btn_recall: Button
 var _card_buttons := {}
 var _extract_buttons := {}
+var _summon_buttons := {}
 var _descriptions := {}
 
 func _ready() -> void:
@@ -38,15 +39,20 @@ func _ready() -> void:
 	_bind_hover(_btn_skill1, "skill1")
 	_bind_hover(_btn_wait, "wait")
 	_btn_skill2 = _add_button("技能2", "skill2", func(): emit_signal("skill2_pressed"))
-	_btn_summon = _add_button("召唤", "summon", func(): emit_signal("summon_pressed"))
+	_btn_summon = _add_button("召藤", "summon_grass", func(): emit_signal("summon_pressed", "grass"))
 	_btn_recall = _add_button("回收", "recall", func(): emit_signal("recall_pressed"))
+	_summon_buttons["grass"] = _btn_summon
+	_summon_buttons["water"] = _add_button("召水", "summon_water", func(): emit_signal("summon_pressed", "water"))
+	_summon_buttons["electric"] = _add_button("召电", "summon_electric", func(): emit_signal("summon_pressed", "electric"))
+	_summon_buttons["ice"] = _add_button("召冰", "summon_ice", func(): emit_signal("summon_pressed", "ice"))
 	_card_buttons["haste"] = _add_button("高速", "haste", func(): emit_signal("card_pressed", "haste"))
 	_card_buttons["shield"] = _add_button("护盾", "shield", func(): emit_signal("card_pressed", "shield"))
 	_card_buttons["power"] = _add_button("火力", "power", func(): emit_signal("card_pressed", "power"))
 	_card_buttons["capture"] = _add_button("封印", "capture", func(): emit_signal("card_pressed", "capture"))
 	_extract_buttons["grass"] = _add_button("提藤", "extract_grass", func(): emit_signal("extract_pressed", "grass"))
 	_extract_buttons["water"] = _add_button("提水", "extract_water", func(): emit_signal("extract_pressed", "water"))
-	_extract_buttons["spark"] = _add_button("提电", "extract_spark", func(): emit_signal("extract_pressed", "spark"))
+	_extract_buttons["electric"] = _add_button("提电", "extract_electric", func(): emit_signal("extract_pressed", "electric"))
+	_extract_buttons["ice"] = _add_button("提冰", "extract_ice", func(): emit_signal("extract_pressed", "ice"))
 	visible = false   # 默认隐藏
 
 func _add_button(label: String, key: String, callback: Callable) -> Button:
@@ -78,6 +84,11 @@ func set_card_labels(card_labels: Dictionary) -> void:
 	for card_id in _card_buttons:
 		if card_labels.has(card_id):
 			_card_buttons[card_id].text = card_labels[card_id]
+
+func set_summon_labels(summon_labels: Dictionary) -> void:
+	for summon_id in _summon_buttons:
+		if summon_labels.has(summon_id):
+			_summon_buttons[summon_id].text = summon_labels[summon_id]
 
 func set_extract_labels(extract_labels: Dictionary) -> void:
 	for extract_id in _extract_buttons:

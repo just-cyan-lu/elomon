@@ -18,7 +18,11 @@ enum ElementType {
 	NONE,
 	FIRE,
 	WATER,
-	GRASS
+	GRASS,
+	ICE,
+	ELECTRIC,
+	FLYING,
+	GROUND
 }
 
 # 地形类型，MVP 用于验证站位与技能互动

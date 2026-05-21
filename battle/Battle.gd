@@ -11,10 +11,17 @@ const CARD_DEFS := {
 	"power": {"name": "火力插件", "cost": 25, "cooldown": 2, "effect": "目标宝可梦下一次攻击伤害提高 50%，攻击后消耗。"},
 	"capture": {"name": "空白封印卡", "cost": 40, "cooldown": 3, "effect": "封印稳定度归零且 HP 低于 40% 的野生宝可梦。"},
 }
+const SUMMON_DEFS := {
+	"grass": {"name": "召唤藤藤兽", "reserve": "藤藤兽", "short": "召藤", "effect": "草属性控制型后备，擅长削稳定度和牵制水/地属性。"},
+	"water": {"name": "召唤水跃兽", "reserve": "水跃兽", "short": "召水", "effect": "水属性支援型后备，能治疗友方并压制火/地属性。"},
+	"electric": {"name": "召唤电花鼠", "reserve": "电花鼠", "short": "召电", "effect": "雷属性高速后备，擅长处理中远程水/飞属性目标。"},
+	"ice": {"name": "召唤冰羽兽", "reserve": "冰羽兽", "short": "召冰", "effect": "冰属性压制型后备，擅长克制草/飞/地属性目标。"},
+}
 const EXTRACT_DEFS := {
 	"grass": {"name": "提取藤藤兽", "reserve": "藤藤兽", "skill_index": 1, "effect": "训练师切换为草属性，技能替换为缠绕；被火系克制，抵抗水系。"},
 	"water": {"name": "提取水跃兽", "reserve": "水跃兽", "skill_index": 1, "effect": "训练师切换为水属性，技能替换为水愈；抵抗火系，被草系克制。"},
-	"spark": {"name": "提取电花鼠", "reserve": "电花鼠", "skill_index": 0, "effect": "训练师切换为无属性，技能替换为电弧；雷系尚未进入 MVP 克制表。"},
+	"electric": {"name": "提取电花鼠", "reserve": "电花鼠", "skill_index": 0, "effect": "训练师切换为雷属性，技能替换为电弧；克制水/飞，被地属性压制。"},
+	"ice": {"name": "提取冰羽兽", "reserve": "冰羽兽", "skill_index": 0, "effect": "训练师切换为冰属性，技能替换为冰针；克制草/飞/地，被火属性压制。"},
 }
 
 # 子节点引用（在 Battle.tscn 场景里赋值，名称必须一致）
@@ -38,6 +45,7 @@ var _captured_names: Array[String] = []
 var _sync_points: int = 70
 var _max_sync_points: int = 100
 var _selected_card_id: String = ""
+var _selected_summon_id: String = ""
 var _selected_skill_index: int = 0
 var _sync_label: Label
 var _sync_feedback_label: Label
@@ -144,21 +152,27 @@ func _spawn_units() -> void:
 	var snare_skill := _make_skill("缠绕", 14, 3, 45, Enums.ElementType.GRASS, 25, true)
 	var water_skill := _make_skill("水泡", 20, 3, 35, Enums.ElementType.WATER, 14)
 	var mend_skill := _make_skill("水愈", 22, 3, 40, Enums.ElementType.WATER, 0, false, 0, SkillData.EffectType.HEAL)
-	var spark_skill := _make_skill("电弧", 22, 3, 40, Enums.ElementType.NONE, 16)
-	var quick_skill := _make_skill("疾闪", 12, 2, 30, Enums.ElementType.NONE, 8)
+	var spark_skill := _make_skill("电弧", 22, 3, 40, Enums.ElementType.ELECTRIC, 16)
+	var quick_skill := _make_skill("疾闪", 12, 2, 30, Enums.ElementType.ELECTRIC, 8)
+	var ice_skill := _make_skill("冰针", 24, 3, 40, Enums.ElementType.ICE, 18)
+	var frost_skill := _make_skill("霜缚", 16, 3, 45, Enums.ElementType.ICE, 24, true)
 	var blade_skill := _make_skill("数据短刃", 14, 1, 25, Enums.ElementType.NONE, 8)
 	var fire_bite_skill := _make_skill("火牙", 22, 1, 35, Enums.ElementType.FIRE, 10)
 	var grass_bite_skill := _make_skill("叶咬", 22, 1, 35, Enums.ElementType.GRASS, 10)
 	var water_dart_skill := _make_skill("水针", 18, 3, 45, Enums.ElementType.WATER, 10)
+	var wind_skill := _make_skill("风刃", 20, 3, 45, Enums.ElementType.FLYING, 10)
+	var ground_skill := _make_skill("地刺", 24, 2, 45, Enums.ElementType.GROUND, 12)
 	var boss_skill := _make_skill("重踏", 10, 1, 60, Enums.ElementType.GRASS, 10)
 	
 	var grass_data := _make_unit_data("藤藤兽", Enums.UnitType.PLAYER_POKEMON, 95, 15, 5, 48, 4, Color(0.25, 0.75, 0.36), Enums.ElementType.GRASS, [vine_skill, snare_skill])
 	var water_data := _make_unit_data("水跃兽", Enums.UnitType.PLAYER_POKEMON, 88, 13, 4, 52, 4, Color(0.24, 0.58, 0.86), Enums.ElementType.WATER, [water_skill, mend_skill])
-	var spark_data := _make_unit_data("电花鼠", Enums.UnitType.PLAYER_POKEMON, 76, 16, 3, 68, 5, Color(0.85, 0.78, 0.34), Enums.ElementType.NONE, [spark_skill, quick_skill])
+	var spark_data := _make_unit_data("电花鼠", Enums.UnitType.PLAYER_POKEMON, 76, 16, 3, 68, 5, Color(0.85, 0.78, 0.34), Enums.ElementType.ELECTRIC, [spark_skill, quick_skill])
+	var ice_data := _make_unit_data("冰羽兽", Enums.UnitType.PLAYER_POKEMON, 82, 15, 4, 54, 4, Color(0.58, 0.82, 0.92), Enums.ElementType.ICE, [ice_skill, frost_skill])
 	_reserve_units.clear()
 	_reserve_units[grass_data.unit_name] = grass_data
 	_reserve_units[water_data.unit_name] = water_data
 	_reserve_units[spark_data.unit_name] = spark_data
+	_reserve_units[ice_data.unit_name] = ice_data
 	
 	var unit_scene := preload("res://units/Unit.tscn")
 	var trainer_data := _make_unit_data("训练师", Enums.UnitType.PLAYER, 90, 10, 4, 44, 4, Color(0.35, 0.85, 0.88), Enums.ElementType.NONE, [blade_skill])
@@ -167,6 +181,8 @@ func _spawn_units() -> void:
 	_spawn_unit(unit_scene, _make_unit_data("火牙小怪", Enums.UnitType.ENEMY, 72, 13, 3, 36, 4, Color(0.92, 0.34, 0.32), Enums.ElementType.FIRE, [fire_bite_skill]), Vector2i(10, 4))
 	_spawn_unit(unit_scene, _make_unit_data("叶咬小怪", Enums.UnitType.ENEMY, 72, 13, 3, 34, 4, Color(0.82, 0.36, 0.28), Enums.ElementType.GRASS, [grass_bite_skill]), Vector2i(10, 7))
 	_spawn_unit(unit_scene, _make_unit_data("水针小怪", Enums.UnitType.ENEMY, 62, 11, 2, 40, 3, Color(0.34, 0.48, 0.82), Enums.ElementType.WATER, [water_dart_skill]), Vector2i(13, 5))
+	_spawn_unit(unit_scene, _make_unit_data("飞羽小怪", Enums.UnitType.ENEMY, 58, 10, 2, 52, 5, Color(0.64, 0.66, 0.86), Enums.ElementType.FLYING, [wind_skill]), Vector2i(12, 2))
+	_spawn_unit(unit_scene, _make_unit_data("地壳小怪", Enums.UnitType.ENEMY, 88, 12, 5, 28, 3, Color(0.62, 0.50, 0.34), Enums.ElementType.GROUND, [ground_skill]), Vector2i(12, 9))
 	_spawn_unit(unit_scene, _make_unit_data("铁甲巨兽", Enums.UnitType.WILD_POKEMON, 280, 8, 8, 24, 2, Color(0.25, 0.65, 0.25), Enums.ElementType.GRASS, [boss_skill], 110, true, 3, 18, 5, 1), Vector2i(14, 9))
 
 func _spawn_unit(unit_scene: PackedScene, unit_data: UnitData, spawn_pos: Vector2i) -> Unit:
@@ -301,6 +317,7 @@ func _end_turn() -> void:
 		_active_unit.consume_ap(Enums.MAX_AP)
 	_action_state = Enums.ActionState.IDLE
 	_selected_card_id = ""
+	_selected_summon_id = ""
 	_selected_skill_index = 0
 	_selected_skill_target = Vector2i(-1, -1)
 	_turn_has_support_action = false
@@ -382,6 +399,7 @@ func _cancel_current_selection() -> void:
 		return
 	_action_state = Enums.ActionState.IDLE
 	_selected_card_id = ""
+	_selected_summon_id = ""
 	_selected_skill_index = 0
 	_selected_skill_target = Vector2i(-1, -1)
 	_move_cells.clear()
@@ -392,21 +410,26 @@ func _cancel_current_selection() -> void:
 	_show_action_menu()
 	_show_tip("已取消选择。")
 
-func _on_summon_pressed() -> void:
+func _on_summon_pressed(summon_id: String) -> void:
 	if not _is_trainer_turn():
 		_show_tip("只有训练师行动时可以召唤。")
 		return
-	if not _reserve_units.has("藤藤兽"):
-		_show_tip("藤藤兽不在后备中，暂时没有可召唤的宝可梦。")
+	if not SUMMON_DEFS.has(summon_id):
+		return
+	var summon_def = SUMMON_DEFS[summon_id]
+	var reserve_name := str(summon_def["reserve"])
+	if not _reserve_units.has(reserve_name):
+		_show_tip("%s 不在后备中，不能召唤。" % reserve_name)
 		return
 	if _sync_points < SUMMON_COST:
 		_show_tip("同步率不足，召唤需要 %d。" % SUMMON_COST)
 		return
+	_selected_summon_id = summon_id
 	_action_state = Enums.ActionState.SELECTING_SUMMON
 	_card_cells = _empty_cells_in_range(_trainer.grid_pos, CARD_RANGE)
 	grid_manager.highlight_cells(_card_cells, GridManager.COLOR_MOVE)
 	action_menu.hide_menu()
-	_show_tip("选择训练师附近的空格召唤藤藤兽。")
+	_show_tip("选择训练师附近的空格召唤 %s。" % reserve_name)
 
 func _on_recall_pressed() -> void:
 	if not _is_trainer_turn():
@@ -495,7 +518,7 @@ func _on_cell_clicked(grid_pos: Vector2i) -> void:
 
 		Enums.ActionState.SELECTING_SUMMON:
 			if grid_pos in _card_cells and not grid_manager.is_occupied(grid_pos):
-				_summon_grass(grid_pos)
+				_summon_reserve(grid_pos)
 
 		Enums.ActionState.IDLE:
 			var target := grid_manager.get_unit_at(grid_pos)
@@ -647,22 +670,29 @@ func _resolve_recall(grid_pos: Vector2i) -> void:
 	_remove_unit(target, false)
 	_finish_card("已回收 %s。" % target_name)
 
-func _summon_grass(grid_pos: Vector2i) -> void:
+func _summon_reserve(grid_pos: Vector2i) -> void:
+	if not SUMMON_DEFS.has(_selected_summon_id):
+		return
+	var reserve_name := str(SUMMON_DEFS[_selected_summon_id]["reserve"])
+	if not _reserve_units.has(reserve_name):
+		_show_tip("%s 不在后备中，不能召唤。" % reserve_name)
+		return
 	_sync_points -= SUMMON_COST
 	_turn_has_support_action = true
 	_clear_extract_undo()
 	var unit_scene := preload("res://units/Unit.tscn")
-	var unit_data: UnitData = _reserve_units["藤藤兽"]
+	var unit_data: UnitData = _reserve_units[reserve_name]
 	var unit := _spawn_unit(unit_scene, unit_data, grid_pos)
 	ctb_system.add_unit(unit)
-	_reserve_units.erase("藤藤兽")
+	_reserve_units.erase(reserve_name)
 	unit.current_ap = 40
+	_selected_summon_id = ""
 	_action_state = Enums.ActionState.IDLE
 	grid_manager.clear_highlights()
 	_update_enemy_threat_overlay()
 	_update_sync_ui()
 	_show_action_menu()
-	_show_tip("藤藤兽入场。同步率回复会因为多一只宝可梦而变慢。")
+	_show_tip("%s 入场。同步率回复会因为多一只宝可梦而变慢。" % reserve_name)
 
 func _capture_unit(unit: Unit) -> void:
 	_captured_names.append(unit.data.unit_name)
@@ -868,6 +898,7 @@ func _undo_active_unit_move() -> void:
 func _cancel_to_action_menu(message: String) -> void:
 	_action_state = Enums.ActionState.IDLE
 	_selected_card_id = ""
+	_selected_summon_id = ""
 	_selected_skill_index = 0
 	_selected_skill_target = Vector2i(-1, -1)
 	_move_cells.clear()
@@ -921,6 +952,7 @@ func _update_action_menu_content() -> void:
 		skill_names.append(skill.skill_name)
 	action_menu.set_skill_labels(skill_names)
 	action_menu.set_card_labels(_build_card_labels())
+	action_menu.set_summon_labels(_build_summon_labels())
 	action_menu.set_extract_labels(_build_extract_labels())
 	action_menu.set_option_descriptions(_build_action_descriptions())
 
@@ -932,6 +964,17 @@ func _build_card_labels() -> Dictionary:
 			labels[card_id] = "%sCD%d" % [_get_card_short_name(card_id), left]
 		else:
 			labels[card_id] = "%s%d" % [_get_card_short_name(card_id), CARD_DEFS[card_id]["cost"]]
+	return labels
+
+func _build_summon_labels() -> Dictionary:
+	var labels := {}
+	for summon_id in SUMMON_DEFS:
+		var label := str(SUMMON_DEFS[summon_id]["short"])
+		var reserve_name := str(SUMMON_DEFS[summon_id]["reserve"])
+		if not _reserve_units.has(reserve_name):
+			labels[summon_id] = label + "离"
+		else:
+			labels[summon_id] = "%s%d" % [label, SUMMON_COST]
 	return labels
 
 func _build_extract_labels() -> Dictionary:
@@ -958,8 +1001,9 @@ func _build_action_descriptions() -> Dictionary:
 			descriptions[key] = _describe_skill(skill)
 		else:
 			descriptions[key] = "这个单位没有技能 %d。" % (i + 1)
-	descriptions["summon"] = "召唤：消耗 %d 同步率，在训练师 %d 格内召唤藤藤兽。召唤后藤藤兽以 40 AP 入场。" % [SUMMON_COST, CARD_RANGE]
 	descriptions["recall"] = "回收：消耗 %d 同步率，收回训练师 %d 格内的己方宝可梦，保留 HP 和 AP 状态。" % [RECALL_COST, CARD_RANGE]
+	for summon_id in SUMMON_DEFS:
+		descriptions["summon_" + summon_id] = _describe_summon(summon_id)
 	for card_id in CARD_DEFS:
 		descriptions[card_id] = _describe_card(card_id)
 	for extract_id in EXTRACT_DEFS:
@@ -1001,6 +1045,24 @@ func _describe_card(card_id: String) -> String:
 		status
 	]
 
+func _describe_summon(summon_id: String) -> String:
+	var summon_def = SUMMON_DEFS[summon_id]
+	var reserve_name := str(summon_def["reserve"])
+	var status := "可用"
+	if not _reserve_units.has(reserve_name):
+		status = "%s 不在后备" % reserve_name
+	elif _sync_points < SUMMON_COST:
+		status = "同步率不足"
+	return "%s：消耗 %d，同步率当前 %d/%d，在训练师 %d 格内召唤。%s\n状态：%s" % [
+		summon_def["name"],
+		SUMMON_COST,
+		_sync_points,
+		_max_sync_points,
+		CARD_RANGE,
+		summon_def["effect"],
+		status
+	]
+
 func _describe_extract(extract_id: String) -> String:
 	var extract_def = EXTRACT_DEFS[extract_id]
 	var reserve_name := str(extract_def["reserve"])
@@ -1039,8 +1101,10 @@ func _get_extract_short_name(extract_id: String) -> String:
 			return "提藤"
 		"water":
 			return "提水"
-		"spark":
+		"electric":
 			return "提电"
+		"ice":
+			return "提冰"
 		_:
 			return str(extract_id)
 
