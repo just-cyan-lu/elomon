@@ -11,8 +11,9 @@
 1. **生成单位** — MVP 版本在 `_spawn_units()` 中动态创建 `UnitData` / `SkillData`，实例化 `Unit.tscn`，并将单位注册到 `GridManager`、`CTBSystem` 和 `CTBBar`。旧 `.tres` 数据仍保留，但当前样板战斗不依赖它们。
 2. **CTB 推进** — `CTBSystem._process()` 每帧为各单位累加 AP。某单位 AP 达到 100 时发出 `unit_ready` 信号，`CTBSystem` 自身暂停，`Battle.gd` 的 `_on_unit_ready()` 响应。恢复跑条时如果已有单位满 AP，会立刻触发该单位行动，避免被卡牌加满 AP 的单位被跳过。
 3. **玩家回合** — `Battle.gd` 显示 `ActionMenu`。玩家选择移动 / 技能 / 指令卡 / 召唤 / 回收 / 等待，驱动 `ActionState` 状态机。格子点击通过 `GridManager` 的 `cell_clicked` 信号路由。空闲时点击敌人会预览敌方移动范围和最远攻击威胁；选择移动时会同时预览移动后最远技能覆盖范围。移动后若尚未使用技能或支援操作，可按 `Esc` 撤回到回合开始位置。选择技能后第一次点目标只显示伤害预览，确认后才结算攻击并自动结束回合。
-4. **敌方回合** — `UnitAI.run()`（`RefCounted` 类上的静态方法）通过 `await` 延迟执行，便于玩家观察，结束后调用 `_end_turn()`。
+4. **敌方回合** — `UnitAI.run()`（`RefCounted` 类上的静态方法）通过 `await` 延迟执行，便于玩家观察，并返回本次 AI 移动、攻击、蓄力或待机日志；`Battle.gd` 统一写入战斗日志后调用 `_end_turn()`。
 5. **结束回合** — `_end_turn()` 从当前单位 AP 中扣除 `MAX_AP`，清除高亮和状态，调用 `CTBSystem.resume()` 重启计时。MVP 中 AP 只负责行动顺序，不再参与移动和技能成本。
+6. **战斗日志** — `Battle.gd` 在右下角动态创建滚动日志面板，只记录已经结算的移动、技能、指令卡、召唤、回收、封印、敌方行动和待机。预览、选中目标、Esc 取消等未落地操作不会写入日志；可撤销的训练师提取若被 Esc 取消，会同步移除对应日志。日志内部保存结构化 record：展示文本、事件类型、actor/target 阵营、位置、HP/AP、伤害倍率、同步率消耗/获得等；单位稳定 id 暂以 TODO 字段占位，后续接入正式单位 id。
 
 ## MVP 战斗系统
 当前分支实现了 `.claude/mvp_design.md` 的第一版样板战：
@@ -41,7 +42,7 @@
 ## 单位（`units/`）
 - `Unit.gd`（`class_name Unit`）— 运行时状态：`current_hp`、`current_ap`、`grid_pos`、`has_acted`、`has_moved`、护盾、稳定度、可封印提示、下次攻击强化、下次移动加成、上一次攻击者、蓄力预警格。提供 `take_damage()`、`heal()`、护盾、属性伤害倍率与稳定度变更等战斗接口。视觉表现由代码动态创建的 `ColorRect`、血条和 `Label` 节点充当（美术资源到位前的占位符）。阵营色固定为我方柔和蓝、敌方柔和红、中立/野生柔和黄，受伤时会闪白并显示短暂伤害数字。
 - `UnitData.gd`（`class_name UnitData`，继承 `Resource`）— 静态数据：属性、颜色、技能列表、主元素属性、元素属性列表、最大稳定度。`element_type` 保留为主属性兼容字段，`element_types` 用于未来双属性；为空时回退到主属性。旧实例位于 `units/data/tres/`，MVP 样板战当前由 `Battle.gd` 动态生成。
-- `UnitAI.gd`（`class_name UnitAI`，继承 `RefCounted`）— 无状态静态 AI。`run()` 优先反击上一次攻击自己的我方单位；没有可用仇恨目标时，寻找最近我方单位，移动靠近后若在攻击范围内则发动攻击。厚血大怪每隔数次行动可能进入蓄力状态，下一次行动结算预警格伤害。
+- `UnitAI.gd`（`class_name UnitAI`，继承 `RefCounted`）— 无状态静态 AI。`run()` 优先反击上一次攻击自己的我方单位；没有可用仇恨目标时，寻找最近我方单位，移动靠近后若在攻击范围内则发动攻击。厚血大怪每隔数次行动可能进入蓄力状态，下一次行动结算预警格伤害。AI 不直接操作 UI，而是返回行动日志文本，由 `Battle.gd` 统一展示。
 
 ## 技能（`skills/`）
 - `SkillData.gd`（`class_name SkillData`，继承 `Resource`）— 字段：`skill_name`、`damage`、`atk_range`、预留的 `ap_cost`、元素属性、稳定度伤害、是否控制技能、`area_radius`、`effect_type`。MVP 中技能不消耗 AP，`ap_cost` 暂不参与战斗结算。`effect_type=DAMAGE` 表示攻击敌人，`HEAL` 表示治疗友方。`area_radius=0` 表示单体，`>0` 表示目标格周围菱形范围。旧实例位于 `skills/tres/`，MVP 样板战当前由 `Battle.gd` 动态生成。
@@ -51,6 +52,7 @@
 ## UI（`ui/`）
 - `ActionMenu.gd` — 悬浮在当前行动单位旁，发出移动、技能、指令卡、提取、召唤、回收、等待等信号。MVP 中按钮由脚本补充创建；菜单会压缩按钮高度并限制在视口内，避免长菜单超出屏幕。菜单会根据当前单位上下文收缩：非训练师只显示基础动作，训练师通过“指令 / 召唤 / 提取”分组切换指挥操作。菜单按钮会根据当前单位显示真实技能名、卡牌消耗、冷却、当前提取形态或后备离场状态，鼠标悬停时通过 `option_hovered(description)` 让 `Battle.gd` 更新顶部说明。
 - `Battle.gd` 动态创建轻量伤害预览面板。预览面板显示技能名、命中目标、HP 变化、伤害、稳定度变化和总伤害；范围技能会列出所有受影响敌人，并在地图上显示预览数字。
+- `Battle.gd` 动态创建右下角行动日志面板，按时间顺序记录已结算行动。日志使用 `RichTextLabel` 渲染，我方单位名为蓝色、敌方单位名为红色、中立/野生单位名为柔和黄色。伤害预览面板打开时会临时隐藏日志，避免两个右侧面板互相遮挡。
 - `CTBBar.gd` — 提供两种可切换视图：速度跑条视图和行动轴视图。速度跑条视图中每个单位对应一组标签+进度条，每帧从 `unit.current_ap` 更新显示；CTB 暂停时会显示 `WAIT`，当前可行动单位显示 `READY` 并高亮进度条，下一位行动单位显示 `NEXT`。行动轴视图会预测未来数次行动顺序，速度快的单位允许重复出现。
 - `DamageNumber.gd` / `DamageNumber.tscn` — 目前仍是占位脚本和场景，尚未接入伤害表现。
 

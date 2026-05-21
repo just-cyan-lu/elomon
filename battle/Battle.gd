@@ -5,6 +5,7 @@ const CARD_RANGE := 3
 const SUMMON_COST := 50
 const RECALL_COST := 10
 const EXTRACT_COST := 20
+const BATTLE_LOG_LIMIT := 80
 const CARD_DEFS := {
 	"haste": {"name": "高速组件", "cost": 30, "cooldown": 2, "effect": "目标宝可梦下一次移动距离 +2，移动后消耗。"},
 	"shield": {"name": "小型护盾", "cost": 20, "cooldown": 2, "effect": "目标友方获得 30 护盾，护盾会抵消之后受到的伤害。"},
@@ -53,16 +54,21 @@ var _tip_label: Label
 var _enemy_threat_button: Button
 var _preview_panel: PanelContainer
 var _preview_label: Label
+var _log_panel: PanelContainer
+var _log_label: RichTextLabel
 var _card_cooldowns := {}
 var _selected_skill_target: Vector2i = Vector2i(-1, -1)
 var _skill_preview_entries: Array[Dictionary] = []
 var _skill_preview_markers: Array[Label] = []
+var _battle_logs: Array[Dictionary] = []
+var _log_sequence: int = 0
 var _enemy_threat_visible: bool = false
 var _turn_start_pos: Vector2i = Vector2i(-1, -1)
 var _turn_start_snapshot := {}
 var _turn_has_support_action: bool = false
 var _extract_undo_available: bool = false
 var _extract_undo_snapshot := {}
+var _last_reversible_extract_log_index: int = -1
 
 # 缓存当前高亮的格子（用于点击判断）
 var _move_cells: Array[Vector2i] = []
@@ -77,6 +83,7 @@ func _ready() -> void:
 	_connect_signals()
 	ctb_system.register_units(_all_units)
 	_update_sync_ui()
+	_add_battle_log("战斗开始。", {"event_type": "battle_start"})
 	ctb_system.start()
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -144,6 +151,26 @@ func _build_mvp_ui() -> void:
 	cancel_button.add_theme_font_size_override("font_size", 8)
 	cancel_button.pressed.connect(_return_to_skill_selection)
 	button_row.add_child(cancel_button)
+
+	_log_panel = PanelContainer.new()
+	_log_panel.position = Vector2(430, 220)
+	_log_panel.size = Vector2(204, 134)
+	$UI.add_child(_log_panel)
+	var log_box := VBoxContainer.new()
+	log_box.add_theme_constant_override("separation", 2)
+	_log_panel.add_child(log_box)
+	var log_title := Label.new()
+	log_title.text = "行动日志"
+	log_title.add_theme_font_size_override("font_size", 8)
+	log_box.add_child(log_title)
+	_log_label = RichTextLabel.new()
+	_log_label.bbcode_enabled = true
+	_log_label.fit_content = false
+	_log_label.scroll_following = true
+	_log_label.custom_minimum_size = Vector2(194, 108)
+	_log_label.add_theme_font_size_override("normal_font_size", 7)
+	_log_label.add_theme_color_override("default_color", Color(0.86, 0.88, 0.9, 1.0))
+	log_box.add_child(_log_label)
 
 func _spawn_units() -> void:
 	var fire_skill := _make_skill("火花", 26, 2, 30, Enums.ElementType.FIRE, 20)
@@ -296,7 +323,9 @@ func _on_unit_ready(unit: Unit) -> void:
 	if unit.is_enemy():
 		_battle_state = Enums.BattleState.ENEMY_TURN
 		action_menu.hide_menu()
-		await UnitAI.run(unit, grid_manager, _all_units)
+		var enemy_logs: Array[Dictionary] = await UnitAI.run(unit, grid_manager, _all_units)
+		for log_record in enemy_logs:
+			_add_battle_log_record(log_record)
 		_end_turn()
 	else:
 		_battle_state = Enums.BattleState.PLAYER_TURN
@@ -370,6 +399,15 @@ func _on_skill_pressed(skill_index: int) -> void:
 	_show_tip("选择 %s 的目标。技能不消耗 AP，每次行动最多使用一次。" % skill.skill_name)
 
 func _on_wait_pressed() -> void:
+	if _active_unit != null and is_instance_valid(_active_unit):
+		_add_battle_log(
+			"%s 待机。" % _active_unit.data.unit_name,
+			{
+				"event_type": "wait",
+				"actor": _unit_log_data(_active_unit)
+			},
+			[_unit_log_ref(_active_unit)]
+		)
 	_end_turn()
 
 func _cancel_current_selection() -> void:
@@ -483,6 +521,20 @@ func _on_extract_pressed(extract_id: String) -> void:
 	_turn_has_support_action = true
 	_apply_trainer_extract(extract_id)
 	_update_sync_ui()
+	var extract_log_index := _add_battle_log(
+		"训练师提取 %s，消耗同步率 %d。" % [reserve_name, EXTRACT_COST],
+		{
+			"event_type": "extract",
+			"actor": _unit_log_data(_trainer),
+			"reserve_name": reserve_name,
+			"extract_id": extract_id,
+			"sync_cost": EXTRACT_COST,
+			"unit_id_todo": "TODO: add stable ids for reserve units"
+		},
+		[_unit_log_ref(_trainer)]
+	)
+	if can_undo_extract:
+		_last_reversible_extract_log_index = extract_log_index
 	_show_action_menu()
 	_show_tip("训练师提取了 %s：属性和技能已切换，直到下一次提取。" % reserve_name)
 
@@ -493,10 +545,25 @@ func _on_cell_clicked(grid_pos: Vector2i) -> void:
 		Enums.ActionState.SELECTING_MOVE:
 			if grid_pos in _move_cells:
 				_clear_extract_undo()
+				var from_pos := _active_unit.grid_pos
 				grid_manager.move_unit(_active_unit, _active_unit.grid_pos, grid_pos)
 				_active_unit.grid_pos = grid_pos
 				_active_unit.has_moved = true
 				_active_unit.consume_bonus_move()
+				_add_battle_log(
+					"%s 移动 %s -> %s。" % [
+						_active_unit.data.unit_name,
+						_format_grid_pos(from_pos),
+						_format_grid_pos(grid_pos)
+					],
+					{
+						"event_type": "move",
+						"actor": _unit_log_data(_active_unit),
+						"from_pos": _pos_log_data(from_pos),
+						"to_pos": _pos_log_data(grid_pos)
+					},
+					[_unit_log_ref(_active_unit)]
+				)
 				_action_state = Enums.ActionState.IDLE
 				grid_manager.clear_highlights()
 				_update_enemy_threat_overlay()
@@ -590,7 +657,27 @@ func _execute_skill_preview(attacker: Unit, skill: SkillData, target_pos: Vector
 			var heal_target: Unit = entry["target"]
 			if not is_instance_valid(heal_target) or not heal_target.is_alive():
 				continue
-			total_heal += heal_target.heal(entry["heal_amount"])
+			var actual_heal := heal_target.heal(entry["heal_amount"])
+			total_heal += actual_heal
+			_add_battle_log(
+				"%s 使用 %s -> %s，回复 %d。" % [
+					attacker.data.unit_name,
+					skill.skill_name,
+					heal_target.data.unit_name,
+					actual_heal
+				],
+				{
+					"event_type": "skill_heal",
+					"actor": _unit_log_data(attacker),
+					"target": _unit_log_data(heal_target),
+					"skill_name": skill.skill_name,
+					"element_type": skill.element_type,
+					"target_pos": _pos_log_data(heal_target.grid_pos),
+					"heal_amount": actual_heal,
+					"target_hp_after": heal_target.current_hp
+				},
+				[_unit_log_ref(attacker), _unit_log_ref(heal_target)]
+			)
 		_show_tip("%s 回复 %d 点 HP。" % [skill.skill_name, total_heal])
 		return
 
@@ -601,12 +688,50 @@ func _execute_skill_preview(attacker: Unit, skill: SkillData, target_pos: Vector
 		if not is_instance_valid(target) or not target.is_alive():
 			continue
 		var was_stability_depleted := target.stability_depleted
+		var stability_before := target.current_stability
 		var actual := target.take_damage(entry["raw_damage"], attacker, skill.element_type)
 		total_damage += actual
+		var log_parts: Array[String] = [
+			"%s 使用 %s -> %s" % [
+				attacker.data.unit_name,
+				skill.skill_name,
+				target.data.unit_name
+			]
+		]
+		var relation := _get_element_relation_text(skill.element_type, target.data.get_element_types())
+		if relation != "":
+			log_parts.append(relation)
+		log_parts.append("伤害 %d" % actual)
+		var stability_loss := 0
 		if target.is_alive() and target.is_enemy() and target.data.max_stability > 0:
 			target.damage_stability(entry["stability_damage"])
+			stability_loss = stability_before - target.current_stability
+			if stability_loss > 0:
+				log_parts.append("稳定-%d" % stability_loss)
 			if not was_stability_depleted and target.stability_depleted:
 				depleted_count += 1
+		if target.current_hp <= 0:
+			log_parts.append("%s倒下" % target.data.unit_name)
+		_add_battle_log(
+			_join_strings(log_parts, "，") + "。",
+			{
+				"event_type": "skill_damage",
+				"actor": _unit_log_data(attacker),
+				"target": _unit_log_data(target),
+				"skill_name": skill.skill_name,
+				"element_type": skill.element_type,
+				"target_pos": _pos_log_data(target.grid_pos),
+				"raw_damage": entry["raw_damage"],
+				"hp_damage": actual,
+				"target_hp_after": target.current_hp,
+				"type_multiplier": TypeChartUtil.get_damage_multiplier(skill.element_type, target.data.get_element_types()),
+				"type_relation_text": relation,
+				"stability_damage": stability_loss,
+				"target_stability_after": target.current_stability,
+				"target_defeated": target.current_hp <= 0
+			},
+			[_unit_log_ref(attacker), _unit_log_ref(target)]
+		)
 	if attacker.power_boost_next_attack:
 		attacker.set_power_boost(false)
 	if attacker.is_ally() and total_damage > 0:
@@ -629,20 +754,60 @@ func _resolve_card(grid_pos: Vector2i) -> void:
 			if target != null and target.is_ally() and target.data.unit_type != Enums.UnitType.PLAYER:
 				_pay_card("haste")
 				target.add_bonus_move(2)
+				_add_battle_log(
+					"%s 使用指令 %s -> %s，消耗同步率 %d，移动+2。" % [
+						_trainer.data.unit_name,
+						CARD_DEFS["haste"]["name"],
+						target.data.unit_name,
+						CARD_DEFS["haste"]["cost"]
+					],
+					_build_card_log_metadata("haste", target, {"bonus_move": 2}),
+					[_unit_log_ref(_trainer), _unit_log_ref(target)]
+				)
 				_finish_card("高速组件让 %s 下一次移动距离 +2。" % target.data.unit_name)
 		"shield":
 			if target != null and target.is_ally():
 				_pay_card("shield")
 				target.add_shield(30)
+				_add_battle_log(
+					"%s 使用指令 %s -> %s，消耗同步率 %d，护盾+30。" % [
+						_trainer.data.unit_name,
+						CARD_DEFS["shield"]["name"],
+						target.data.unit_name,
+						CARD_DEFS["shield"]["cost"]
+					],
+					_build_card_log_metadata("shield", target, {"shield_gain": 30}),
+					[_unit_log_ref(_trainer), _unit_log_ref(target)]
+				)
 				_finish_card("%s 获得护盾。" % target.data.unit_name)
 		"power":
 			if target != null and target.is_ally() and target.data.unit_type != Enums.UnitType.PLAYER:
 				_pay_card("power")
 				target.set_power_boost(true)
+				_add_battle_log(
+					"%s 使用指令 %s -> %s，消耗同步率 %d，下次攻击强化。" % [
+						_trainer.data.unit_name,
+						CARD_DEFS["power"]["name"],
+						target.data.unit_name,
+						CARD_DEFS["power"]["cost"]
+					],
+					_build_card_log_metadata("power", target, {"next_attack_multiplier": 1.5}),
+					[_unit_log_ref(_trainer), _unit_log_ref(target)]
+				)
 				_finish_card("%s 的下一次攻击被强化。" % target.data.unit_name)
 		"capture":
 			if target != null and target.is_capturable():
 				_pay_card("capture")
+				_add_battle_log(
+					"%s 使用指令 %s -> %s，消耗同步率 %d。" % [
+						_trainer.data.unit_name,
+						CARD_DEFS["capture"]["name"],
+						target.data.unit_name,
+						CARD_DEFS["capture"]["cost"]
+					],
+					_build_card_log_metadata("capture", target, {"capture_ready": target.capture_ready}),
+					[_unit_log_ref(_trainer), _unit_log_ref(target)]
+				)
 				_capture_unit(target)
 			else:
 				_show_tip("目标必须稳定度归零、低血，且是野生宝可梦。")
@@ -667,7 +832,19 @@ func _resolve_recall(grid_pos: Vector2i) -> void:
 	_clear_extract_undo()
 	_reserve_units[target.data.unit_name] = target.data
 	var target_name := target.data.unit_name
+	var target_log_data := _unit_log_data(target)
+	var target_log_ref := _unit_log_ref(target)
 	_remove_unit(target, false)
+	_add_battle_log(
+		"%s 回收 %s，消耗同步率 %d。" % [_trainer.data.unit_name, target_name, RECALL_COST],
+		{
+			"event_type": "recall",
+			"actor": _unit_log_data(_trainer),
+			"target": target_log_data,
+			"sync_cost": RECALL_COST
+		},
+		[_unit_log_ref(_trainer), target_log_ref]
+	)
 	_finish_card("已回收 %s。" % target_name)
 
 func _summon_reserve(grid_pos: Vector2i) -> void:
@@ -686,6 +863,23 @@ func _summon_reserve(grid_pos: Vector2i) -> void:
 	ctb_system.add_unit(unit)
 	_reserve_units.erase(reserve_name)
 	unit.current_ap = 40
+	_add_battle_log(
+		"%s 召唤 %s 到 %s，消耗同步率 %d。" % [
+			_trainer.data.unit_name,
+			reserve_name,
+			_format_grid_pos(grid_pos),
+			SUMMON_COST
+		],
+		{
+			"event_type": "summon",
+			"actor": _unit_log_data(_trainer),
+			"summoned_unit": _unit_log_data(unit),
+			"summon_id": _selected_summon_id,
+			"to_pos": _pos_log_data(grid_pos),
+			"sync_cost": SUMMON_COST
+		},
+		[_unit_log_ref(_trainer), _unit_log_ref(unit)]
+	)
 	_selected_summon_id = ""
 	_action_state = Enums.ActionState.IDLE
 	grid_manager.clear_highlights()
@@ -696,8 +890,20 @@ func _summon_reserve(grid_pos: Vector2i) -> void:
 
 func _capture_unit(unit: Unit) -> void:
 	_captured_names.append(unit.data.unit_name)
+	var captured_log_data := _unit_log_data(unit)
+	var captured_log_ref := _unit_log_ref(unit)
 	_gain_sync(18, "捕捉")
 	_remove_unit(unit, false)
+	_add_battle_log(
+		"%s 封印成功，获得 %s，同步率+18。" % [_trainer.data.unit_name, _captured_names.back()],
+		{
+			"event_type": "capture_success",
+			"actor": _unit_log_data(_trainer),
+			"target": captured_log_data,
+			"sync_gain": 18
+		},
+		[_unit_log_ref(_trainer), captured_log_ref]
+	)
 	_finish_card("封印成功，获得 %s。" % _captured_names.back())
 	_check_battle_over()
 
@@ -762,12 +968,14 @@ func _undo_trainer_extract() -> void:
 		_trainer.data.skills.append(skill)
 	_trainer.refresh_status()
 	_turn_has_support_action = false
+	_remove_reversible_extract_log()
 	_clear_extract_undo()
 	_cancel_to_action_menu("已取消本次能力提取，同步率已返还。")
 
 func _clear_extract_undo() -> void:
 	_extract_undo_available = false
 	_extract_undo_snapshot.clear()
+	_last_reversible_extract_log_index = -1
 
 func _can_pay_card(card_id: String) -> bool:
 	var card_def = CARD_DEFS[card_id]
@@ -840,6 +1048,145 @@ func _show_sync_feedback(amount: int, reason: String) -> void:
 	tween.parallel().tween_property(_sync_feedback_label, "modulate:a", 0.0, 0.55)
 	tween.tween_callback(func(): _sync_feedback_label.visible = false)
 
+func _add_battle_log(text: String, metadata: Dictionary = {}, unit_refs: Array[Dictionary] = []) -> int:
+	var record := {
+		"text": text,
+		"metadata": metadata.duplicate(true),
+		"unit_refs": unit_refs.duplicate(true)
+	}
+	return _add_battle_log_record(record)
+
+func _add_battle_log_record(record: Dictionary) -> int:
+	_log_sequence += 1
+	var stored_record := record.duplicate(true)
+	stored_record["seq"] = _log_sequence
+	if not stored_record.has("text"):
+		stored_record["text"] = ""
+	if not stored_record.has("metadata"):
+		stored_record["metadata"] = {}
+	if not stored_record.has("unit_refs"):
+		stored_record["unit_refs"] = []
+	if not stored_record.has("bbcode"):
+		stored_record["bbcode"] = _render_log_text(str(stored_record["text"]), stored_record["unit_refs"])
+	_battle_logs.append(stored_record)
+	while _battle_logs.size() > BATTLE_LOG_LIMIT:
+		_battle_logs.pop_front()
+		if _last_reversible_extract_log_index >= 0:
+			_last_reversible_extract_log_index -= 1
+	_refresh_battle_log_ui()
+	return _battle_logs.size() - 1
+
+func _remove_reversible_extract_log() -> void:
+	if _last_reversible_extract_log_index < 0:
+		return
+	if _last_reversible_extract_log_index >= _battle_logs.size():
+		_last_reversible_extract_log_index = -1
+		return
+	_battle_logs.remove_at(_last_reversible_extract_log_index)
+	_last_reversible_extract_log_index = -1
+	_refresh_battle_log_ui()
+
+func _refresh_battle_log_ui() -> void:
+	if not is_instance_valid(_log_label):
+		return
+	var lines: Array[String] = []
+	for record in _battle_logs:
+		lines.append("[color=#8c95a3]%02d[/color]  %s" % [
+			int(record["seq"]),
+			str(record["bbcode"])
+		])
+	_log_label.clear()
+	_log_label.append_text(_join_strings(lines, "\n"))
+
+func _render_log_text(text: String, unit_refs: Array) -> String:
+	var rendered := _escape_bbcode(text)
+	for unit_ref in unit_refs:
+		var ref: Dictionary = unit_ref
+		if not ref.has("name"):
+			continue
+		var escaped_name := _escape_bbcode(str(ref["name"]))
+		var color := _get_log_side_color(str(ref.get("side_key", "system")))
+		rendered = rendered.replace(escaped_name, "[color=%s]%s[/color]" % [color, escaped_name])
+	return rendered
+
+func _escape_bbcode(text: String) -> String:
+	return text.replace("[", "[lb]").replace("]", "[rb]")
+
+func _unit_log_ref(unit: Unit) -> Dictionary:
+	if unit == null or not is_instance_valid(unit):
+		return {}
+	return {
+		"name": unit.data.unit_name,
+		"side_key": _get_unit_side_key(unit),
+		"side": _get_unit_side_label(unit)
+	}
+
+func _unit_log_data(unit: Unit) -> Dictionary:
+	if unit == null or not is_instance_valid(unit):
+		return {}
+	return {
+		"unit_id": "TODO: add stable runtime unit id",
+		"name": unit.data.unit_name,
+		"side_key": _get_unit_side_key(unit),
+		"side": _get_unit_side_label(unit),
+		"unit_type": unit.data.unit_type,
+		"element_types": unit.data.get_element_types(),
+		"grid_pos": _pos_log_data(unit.grid_pos),
+		"hp": unit.current_hp,
+		"max_hp": unit.data.max_hp,
+		"ap": unit.current_ap
+	}
+
+func _pos_log_data(pos: Vector2i) -> Dictionary:
+	return {"x": pos.x, "y": pos.y, "text": _format_grid_pos(pos)}
+
+func _build_card_log_metadata(card_id: String, target: Unit, extra: Dictionary = {}) -> Dictionary:
+	var metadata := {
+		"event_type": "card",
+		"actor": _unit_log_data(_trainer),
+		"target": _unit_log_data(target),
+		"card_id": card_id,
+		"card_name": str(CARD_DEFS[card_id]["name"]),
+		"sync_cost": int(CARD_DEFS[card_id]["cost"]),
+		"cooldown": int(CARD_DEFS[card_id]["cooldown"])
+	}
+	for key in extra:
+		metadata[key] = extra[key]
+	return metadata
+
+func _get_unit_side_key(unit: Unit) -> String:
+	if unit.is_ally():
+		return "ally"
+	if unit.data.unit_type == Enums.UnitType.WILD_POKEMON \
+	or unit.data.unit_type == Enums.UnitType.NEUTRAL \
+	or unit.data.unit_type == Enums.UnitType.NEUTRAL_POKEMON:
+		return "neutral"
+	if unit.is_enemy():
+		return "enemy"
+	return "system"
+
+func _get_unit_side_label(unit: Unit) -> String:
+	match _get_unit_side_key(unit):
+		"ally":
+			return "我方"
+		"enemy":
+			return "敌方"
+		"neutral":
+			return "中立"
+		_:
+			return "系统"
+
+func _get_log_side_color(side_key: String) -> String:
+	match side_key:
+		"ally":
+			return "#74b8ff"
+		"enemy":
+			return "#ff7b73"
+		"neutral":
+			return "#e4c766"
+		_:
+			return "#d7dbe2"
+
 func _join_strings(parts: Array, delimiter: String) -> String:
 	var text := ""
 	for i in parts.size():
@@ -847,6 +1194,9 @@ func _join_strings(parts: Array, delimiter: String) -> String:
 			text += delimiter
 		text += str(parts[i])
 	return text
+
+func _format_grid_pos(pos: Vector2i) -> String:
+	return "(%d,%d)" % [pos.x, pos.y]
 
 func _get_reserve_summary() -> String:
 	if _reserve_units.is_empty():
@@ -1233,6 +1583,8 @@ func _show_preview_area(skill: SkillData, target_pos: Vector2i) -> void:
 	grid_manager.highlight_cells(_get_skill_area_cells(skill, target_pos), GridManager.COLOR_CURSOR, false)
 
 func _show_preview_panel(attacker: Unit, skill: SkillData, entries: Array[Dictionary]) -> void:
+	if is_instance_valid(_log_panel):
+		_log_panel.visible = false
 	var total_damage := 0
 	var lines: Array[String] = []
 	lines.append("%s -> %s" % [attacker.data.unit_name, skill.skill_name])
@@ -1305,6 +1657,8 @@ func _show_preview_markers(entries: Array[Dictionary]) -> void:
 func _clear_skill_preview() -> void:
 	if is_instance_valid(_preview_panel):
 		_preview_panel.visible = false
+	if is_instance_valid(_log_panel):
+		_log_panel.visible = true
 	_clear_preview_markers()
 
 func _clear_preview_markers() -> void:
