@@ -1060,6 +1060,11 @@ func _active_pokemon_count() -> int:
 			count += 1
 	return count
 
+func _has_turn_activity() -> bool:
+	return _active_unit != null \
+		and is_instance_valid(_active_unit) \
+		and (_active_unit.has_moved or _active_unit.has_acted or _turn_has_support_action)
+
 func _update_sync_ui() -> void:
 	if not is_instance_valid(_sync_label):
 		return
@@ -1406,7 +1411,7 @@ func _build_extract_labels() -> Dictionary:
 
 func _build_action_descriptions() -> Dictionary:
 	var descriptions := {}
-	descriptions["move"] = "移动：最多 %d 格。移动后仍可使用技能；使用技能后会自动结束回合。" % _active_unit.get_current_move_range()
+	descriptions["move"] = "移动：最多 %d 格。移动后仍可使用技能；使用技能后不能再移动。" % _active_unit.get_current_move_range()
 	if _has_turn_activity():
 		descriptions["wait"] = "结束：提交本回合尚未展示的移动/提取日志，并结束当前单位行动。"
 	else:
@@ -1435,14 +1440,17 @@ func _describe_skill(skill: SkillData) -> String:
 	var target_text := "单体"
 	if skill.area_radius > 0:
 		target_text = "目标格周围 %d 格范围" % skill.area_radius
+	var finish_text := "确认后自动结束回合"
+	if _is_trainer_turn():
+		finish_text = "确认后仍可继续指挥，需手动结束行动"
 	parts.append("%s：射程 %d，%s。" % [skill.skill_name, skill.atk_range, target_text])
 	if skill.effect_type == SkillData.EffectType.HEAL:
-		parts.append("基础回复 %d + %s 攻击 %d；可选择自己或友方，确认后自动结束回合。" % [skill.damage, _active_unit.data.unit_name, _active_unit.data.attack])
+		parts.append("基础回复 %d + %s 攻击 %d；可选择自己或友方，%s。" % [skill.damage, _active_unit.data.unit_name, _active_unit.data.attack, finish_text])
 	elif skill.stability_damage > 0:
-		parts.append("基础伤害 %d + %s 攻击 %d；确认命中后自动结束回合。" % [skill.damage, _active_unit.data.unit_name, _active_unit.data.attack])
+		parts.append("基础伤害 %d + %s 攻击 %d；%s。" % [skill.damage, _active_unit.data.unit_name, _active_unit.data.attack, finish_text])
 		parts.append("稳定度伤害 %d；属性克制时翻倍，控制技能会额外增加。" % skill.stability_damage)
 	else:
-		parts.append("基础伤害 %d + %s 攻击 %d；确认命中后自动结束回合。" % [skill.damage, _active_unit.data.unit_name, _active_unit.data.attack])
+		parts.append("基础伤害 %d + %s 攻击 %d；%s。" % [skill.damage, _active_unit.data.unit_name, _active_unit.data.attack, finish_text])
 	if skill.is_control:
 		parts.append("控制技能。")
 	return _join_strings(parts, "\n")
