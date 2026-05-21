@@ -104,6 +104,10 @@ func set_extract_labels(extract_labels: Dictionary) -> void:
 		if extract_labels.has(extract_id):
 			_extract_buttons[extract_id].text = extract_labels[extract_id]
 
+func set_wait_label(label: String) -> void:
+	if _btn_wait != null:
+		_btn_wait.text = label
+
 func set_context(is_trainer_context: bool) -> void:
 	_is_trainer_context = is_trainer_context
 	_sync_context_visibility()

@@ -61,6 +61,7 @@ var _selected_skill_target: Vector2i = Vector2i(-1, -1)
 var _skill_preview_entries: Array[Dictionary] = []
 var _skill_preview_markers: Array[Label] = []
 var _battle_logs: Array[Dictionary] = []
+var _pending_turn_logs: Array[Dictionary] = []
 var _log_sequence: int = 0
 var _enemy_threat_visible: bool = false
 var _turn_start_pos: Vector2i = Vector2i(-1, -1)
@@ -342,6 +343,7 @@ func _on_unit_ready(unit: Unit) -> void:
 func _end_turn() -> void:
 	if _battle_state == Enums.BattleState.BATTLE_OVER:
 		return
+	_commit_pending_turn_logs()
 	if _active_unit and is_instance_valid(_active_unit):
 		_active_unit.consume_ap(Enums.MAX_AP)
 	_action_state = Enums.ActionState.IDLE
@@ -366,6 +368,9 @@ func _end_turn() -> void:
 
 func _on_move_pressed() -> void:
 	if _battle_state != Enums.BattleState.PLAYER_TURN: return
+	if _active_unit.has_acted:
+		_show_tip("使用技能后不能再移动。")
+		return
 	if _active_unit.has_moved:
 		_show_tip("本回合已经移动过。")
 		return
@@ -400,14 +405,25 @@ func _on_skill_pressed(skill_index: int) -> void:
 
 func _on_wait_pressed() -> void:
 	if _active_unit != null and is_instance_valid(_active_unit):
-		_add_battle_log(
-			"%s 待机。" % _active_unit.data.unit_name,
-			{
-				"event_type": "wait",
-				"actor": _unit_log_data(_active_unit)
-			},
-			[_unit_log_ref(_active_unit)]
-		)
+		_commit_pending_turn_logs()
+		if _has_turn_activity():
+			_add_battle_log(
+				"%s 结束行动。" % _active_unit.data.unit_name,
+				{
+					"event_type": "end_action",
+					"actor": _unit_log_data(_active_unit)
+				},
+				[_unit_log_ref(_active_unit)]
+			)
+		else:
+			_add_battle_log(
+				"%s 待机。" % _active_unit.data.unit_name,
+				{
+					"event_type": "wait",
+					"actor": _unit_log_data(_active_unit)
+				},
+				[_unit_log_ref(_active_unit)]
+			)
 	_end_turn()
 
 func _cancel_current_selection() -> void:
@@ -516,25 +532,38 @@ func _on_extract_pressed(extract_id: String) -> void:
 	if can_undo_extract:
 		_capture_extract_undo_state()
 	else:
-		_clear_extract_undo()
+		_clear_extract_undo(true)
 	_sync_points -= EXTRACT_COST
 	_turn_has_support_action = true
 	_apply_trainer_extract(extract_id)
 	_update_sync_ui()
-	var extract_log_index := _add_battle_log(
-		"训练师提取 %s，消耗同步率 %d。" % [reserve_name, EXTRACT_COST],
-		{
-			"event_type": "extract",
-			"actor": _unit_log_data(_trainer),
-			"reserve_name": reserve_name,
-			"extract_id": extract_id,
-			"sync_cost": EXTRACT_COST,
-			"unit_id_todo": "TODO: add stable ids for reserve units"
-		},
-		[_unit_log_ref(_trainer)]
-	)
 	if can_undo_extract:
+		var extract_log_index := _queue_battle_log(
+			"训练师提取 %s，消耗同步率 %d。" % [reserve_name, EXTRACT_COST],
+			{
+				"event_type": "extract",
+				"actor": _unit_log_data(_trainer),
+				"reserve_name": reserve_name,
+				"extract_id": extract_id,
+				"sync_cost": EXTRACT_COST,
+				"unit_id_todo": "TODO: add stable ids for reserve units"
+			},
+			[_unit_log_ref(_trainer)]
+		)
 		_last_reversible_extract_log_index = extract_log_index
+	else:
+		_add_battle_log(
+			"训练师提取 %s，消耗同步率 %d。" % [reserve_name, EXTRACT_COST],
+			{
+				"event_type": "extract",
+				"actor": _unit_log_data(_trainer),
+				"reserve_name": reserve_name,
+				"extract_id": extract_id,
+				"sync_cost": EXTRACT_COST,
+				"unit_id_todo": "TODO: add stable ids for reserve units"
+			},
+			[_unit_log_ref(_trainer)]
+		)
 	_show_action_menu()
 	_show_tip("训练师提取了 %s：属性和技能已切换，直到下一次提取。" % reserve_name)
 
@@ -544,13 +573,14 @@ func _on_cell_clicked(grid_pos: Vector2i) -> void:
 	match _action_state:
 		Enums.ActionState.SELECTING_MOVE:
 			if grid_pos in _move_cells:
-				_clear_extract_undo()
+				var can_undo_move := not _turn_has_support_action
+				_clear_extract_undo(true)
 				var from_pos := _active_unit.grid_pos
 				grid_manager.move_unit(_active_unit, _active_unit.grid_pos, grid_pos)
 				_active_unit.grid_pos = grid_pos
 				_active_unit.has_moved = true
 				_active_unit.consume_bonus_move()
-				_add_battle_log(
+				var move_record := _make_battle_log_record(
 					"%s 移动 %s -> %s。" % [
 						_active_unit.data.unit_name,
 						_format_grid_pos(from_pos),
@@ -564,6 +594,10 @@ func _on_cell_clicked(grid_pos: Vector2i) -> void:
 					},
 					[_unit_log_ref(_active_unit)]
 				)
+				if can_undo_move:
+					_pending_turn_logs.append(move_record)
+				else:
+					_add_battle_log_record(move_record)
 				_action_state = Enums.ActionState.IDLE
 				grid_manager.clear_highlights()
 				_update_enemy_threat_overlay()
@@ -617,6 +651,8 @@ func _confirm_skill_preview() -> void:
 		return
 	if _action_state != Enums.ActionState.CONFIRMING_SKILL or _skill_preview_entries.is_empty():
 		return
+	_commit_pending_turn_logs()
+	_clear_extract_undo(true)
 	var skill: SkillData = _active_unit.data.skills[_selected_skill_index]
 	_execute_skill_preview(_active_unit, skill, _selected_skill_target, _skill_preview_entries)
 	if _battle_state == Enums.BattleState.BATTLE_OVER:
@@ -630,7 +666,12 @@ func _confirm_skill_preview() -> void:
 	_skill_preview_entries.clear()
 	_clear_skill_preview()
 	grid_manager.clear_highlights()
-	_end_turn()
+	if _is_trainer_turn():
+		_update_enemy_threat_overlay()
+		_show_action_menu()
+		_show_tip("%s 已结算。训练师仍可使用指令、召唤、回收或结束行动。" % skill.skill_name)
+	else:
+		_end_turn()
 
 func _return_to_skill_selection() -> void:
 	if _battle_state != Enums.BattleState.PLAYER_TURN:
@@ -829,7 +870,8 @@ func _resolve_recall(grid_pos: Vector2i) -> void:
 		return
 	_sync_points -= RECALL_COST
 	_turn_has_support_action = true
-	_clear_extract_undo()
+	_commit_pending_turn_logs()
+	_clear_extract_undo(true)
 	_reserve_units[target.data.unit_name] = target.data
 	var target_name := target.data.unit_name
 	var target_log_data := _unit_log_data(target)
@@ -856,7 +898,8 @@ func _summon_reserve(grid_pos: Vector2i) -> void:
 		return
 	_sync_points -= SUMMON_COST
 	_turn_has_support_action = true
-	_clear_extract_undo()
+	_commit_pending_turn_logs()
+	_clear_extract_undo(true)
 	var unit_scene := preload("res://units/Unit.tscn")
 	var unit_data: UnitData = _reserve_units[reserve_name]
 	var unit := _spawn_unit(unit_scene, unit_data, grid_pos)
@@ -972,7 +1015,9 @@ func _undo_trainer_extract() -> void:
 	_clear_extract_undo()
 	_cancel_to_action_menu("已取消本次能力提取，同步率已返还。")
 
-func _clear_extract_undo() -> void:
+func _clear_extract_undo(commit_pending_logs: bool = false) -> void:
+	if commit_pending_logs:
+		_commit_pending_turn_logs()
 	_extract_undo_available = false
 	_extract_undo_snapshot.clear()
 	_last_reversible_extract_log_index = -1
@@ -989,10 +1034,11 @@ func _can_pay_card(card_id: String) -> bool:
 
 func _pay_card(card_id: String) -> void:
 	var card_def = CARD_DEFS[card_id]
+	_commit_pending_turn_logs()
 	_sync_points -= card_def["cost"]
 	_card_cooldowns[card_id] = card_def["cooldown"]
 	_turn_has_support_action = true
-	_clear_extract_undo()
+	_clear_extract_undo(true)
 	_update_sync_ui()
 
 func _tick_card_cooldowns() -> void:
@@ -1049,12 +1095,18 @@ func _show_sync_feedback(amount: int, reason: String) -> void:
 	tween.tween_callback(func(): _sync_feedback_label.visible = false)
 
 func _add_battle_log(text: String, metadata: Dictionary = {}, unit_refs: Array[Dictionary] = []) -> int:
-	var record := {
+	return _add_battle_log_record(_make_battle_log_record(text, metadata, unit_refs))
+
+func _queue_battle_log(text: String, metadata: Dictionary = {}, unit_refs: Array[Dictionary] = []) -> int:
+	_pending_turn_logs.append(_make_battle_log_record(text, metadata, unit_refs))
+	return _pending_turn_logs.size() - 1
+
+func _make_battle_log_record(text: String, metadata: Dictionary = {}, unit_refs: Array[Dictionary] = []) -> Dictionary:
+	return {
 		"text": text,
 		"metadata": metadata.duplicate(true),
 		"unit_refs": unit_refs.duplicate(true)
 	}
-	return _add_battle_log_record(record)
 
 func _add_battle_log_record(record: Dictionary) -> int:
 	_log_sequence += 1
@@ -1076,15 +1128,24 @@ func _add_battle_log_record(record: Dictionary) -> int:
 	_refresh_battle_log_ui()
 	return _battle_logs.size() - 1
 
+func _commit_pending_turn_logs() -> void:
+	for record in _pending_turn_logs:
+		_add_battle_log_record(record)
+	_pending_turn_logs.clear()
+	_last_reversible_extract_log_index = -1
+
+func _discard_pending_turn_logs() -> void:
+	_pending_turn_logs.clear()
+	_last_reversible_extract_log_index = -1
+
 func _remove_reversible_extract_log() -> void:
 	if _last_reversible_extract_log_index < 0:
 		return
-	if _last_reversible_extract_log_index >= _battle_logs.size():
+	if _last_reversible_extract_log_index >= _pending_turn_logs.size():
 		_last_reversible_extract_log_index = -1
 		return
-	_battle_logs.remove_at(_last_reversible_extract_log_index)
+	_pending_turn_logs.remove_at(_last_reversible_extract_log_index)
 	_last_reversible_extract_log_index = -1
-	_refresh_battle_log_ui()
 
 func _refresh_battle_log_ui() -> void:
 	if not is_instance_valid(_log_label):
@@ -1243,6 +1304,7 @@ func _undo_active_unit_move() -> void:
 	_active_unit.grid_pos = _turn_start_pos
 	_active_unit.has_moved = false
 	_active_unit.restore_turn_snapshot(_turn_start_snapshot)
+	_discard_pending_turn_logs()
 	_cancel_to_action_menu("已撤回移动，回到本回合开始位置。")
 
 func _cancel_to_action_menu(message: String) -> void:
@@ -1305,6 +1367,7 @@ func _update_action_menu_content() -> void:
 	action_menu.set_card_labels(_build_card_labels())
 	action_menu.set_summon_labels(_build_summon_labels())
 	action_menu.set_extract_labels(_build_extract_labels())
+	action_menu.set_wait_label("结束" if _has_turn_activity() else "待机")
 	action_menu.set_option_descriptions(_build_action_descriptions())
 
 func _build_card_labels() -> Dictionary:
@@ -1344,7 +1407,10 @@ func _build_extract_labels() -> Dictionary:
 func _build_action_descriptions() -> Dictionary:
 	var descriptions := {}
 	descriptions["move"] = "移动：最多 %d 格。移动后仍可使用技能；使用技能后会自动结束回合。" % _active_unit.get_current_move_range()
-	descriptions["wait"] = "待机：不移动、不使用技能，直接结束当前单位行动。"
+	if _has_turn_activity():
+		descriptions["wait"] = "结束：提交本回合尚未展示的移动/提取日志，并结束当前单位行动。"
+	else:
+		descriptions["wait"] = "待机：不移动、不使用技能，直接结束当前单位行动。"
 	descriptions["group_cards"] = "指令卡：使用同步率强化、保护、回收或封印目标。"
 	descriptions["group_summon"] = "召唤：选择一只仍在后备中的宝可梦入场。召唤会让对应提取暂时不可用。"
 	descriptions["group_extract"] = "提取：切换训练师当前属性和技能，持续到下一次提取。未行动前可按 Esc 撤销。"
