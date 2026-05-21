@@ -2,6 +2,7 @@ class_name UnitAI
 extends RefCounted   # 不是节点，是纯逻辑类
 
 const TypeChartUtil = preload("res://core/TypeChart.gd")
+const CHARGE_ACTION_AP_COST := 100.0
 
 # 执行 AI 行动，返回值用 await 等待（内部有延迟）
 static func run(enemy: Unit, grid_manager: GridManager, all_units: Array[Unit]) -> Array[Dictionary]:
@@ -23,7 +24,11 @@ static func run(enemy: Unit, grid_manager: GridManager, all_units: Array[Unit]) 
 		await Engine.get_main_loop().create_timer(0.3).timeout
 		_start_charge_attack(enemy, grid_manager, target)
 		logs.append(_make_log_record(
-			"%s 开始蓄力，预警 %s 周围。" % [enemy.data.unit_name, _format_grid_pos(target.grid_pos)],
+			"%s 开始蓄力，预警 %s 周围，行动AP-%d。" % [
+				enemy.data.unit_name,
+				_format_grid_pos(target.grid_pos),
+				int(CHARGE_ACTION_AP_COST)
+			],
 			{
 				"event_type": "enemy_charge_start",
 				"actor": _unit_log_data(enemy),
@@ -31,7 +36,8 @@ static func run(enemy: Unit, grid_manager: GridManager, all_units: Array[Unit]) 
 				"target_pos": _pos_log_data(target.grid_pos),
 				"charge_range": enemy.data.charge_range,
 				"charge_radius": enemy.data.charge_radius,
-				"charge_damage": enemy.data.charge_damage
+				"charge_damage": enemy.data.charge_damage,
+				"action_ap_cost": CHARGE_ACTION_AP_COST
 			},
 			[_unit_log_ref(enemy), _unit_log_ref(target)]
 		))
@@ -89,6 +95,7 @@ static func run(enemy: Unit, grid_manager: GridManager, all_units: Array[Unit]) 
 		log_parts.append("伤害 %d" % actual)
 		if target.current_hp <= 0:
 			log_parts.append(_get_defeat_text(target))
+		log_parts.append("行动AP-%d" % int(skill.ap_cost))
 		logs.append(_make_log_record(
 			_join_strings(log_parts, "，") + "。",
 			{
@@ -103,7 +110,8 @@ static func run(enemy: Unit, grid_manager: GridManager, all_units: Array[Unit]) 
 				"target_hp_after": target.current_hp,
 				"type_multiplier": TypeChartUtil.get_damage_multiplier(skill.element_type, target.data.get_element_types()),
 				"type_relation_text": relation,
-				"target_defeated": target.current_hp <= 0
+				"target_defeated": target.current_hp <= 0,
+				"action_ap_cost": skill.ap_cost
 			},
 			[_unit_log_ref(enemy), _unit_log_ref(target)]
 		))
@@ -132,6 +140,7 @@ static func _resolve_charge_attack(enemy: Unit, grid_manager: GridManager, all_u
 			log_parts.append("伤害 %d" % actual)
 			if unit.current_hp <= 0:
 				log_parts.append(_get_defeat_text(unit))
+			log_parts.append("行动AP-%d" % int(CHARGE_ACTION_AP_COST))
 			logs.append(_make_log_record(
 				_join_strings(log_parts, "，") + "。",
 				{
@@ -144,10 +153,21 @@ static func _resolve_charge_attack(enemy: Unit, grid_manager: GridManager, all_u
 					"target_hp_after": unit.current_hp,
 					"type_multiplier": TypeChartUtil.get_damage_multiplier(enemy.data.element_type, unit.data.get_element_types()),
 					"type_relation_text": relation,
-					"target_defeated": unit.current_hp <= 0
+					"target_defeated": unit.current_hp <= 0,
+					"action_ap_cost": CHARGE_ACTION_AP_COST
 				},
 				[_unit_log_ref(enemy), _unit_log_ref(unit)]
 			))
+	if logs.is_empty():
+		logs.append(_make_log_record(
+			"%s 蓄力攻击落空，行动AP-%d。" % [enemy.data.unit_name, int(CHARGE_ACTION_AP_COST)],
+			{
+				"event_type": "enemy_charge_miss",
+				"actor": _unit_log_data(enemy),
+				"action_ap_cost": CHARGE_ACTION_AP_COST
+			},
+			[_unit_log_ref(enemy)]
+		))
 	enemy.clear_pending_charge_cells()
 	grid_manager.clear_warning_cells()
 	return logs
@@ -198,10 +218,11 @@ static func _get_defeat_text(unit: Unit) -> String:
 
 static func _make_wait_log(unit: Unit) -> Dictionary:
 	return _make_log_record(
-		"%s 待机。" % unit.data.unit_name,
+		"%s 待机，行动AP-50。" % unit.data.unit_name,
 		{
 			"event_type": "enemy_wait",
-			"actor": _unit_log_data(unit)
+			"actor": _unit_log_data(unit),
+			"action_ap_cost": 50.0
 		},
 		[_unit_log_ref(unit)]
 	)

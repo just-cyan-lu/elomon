@@ -1,11 +1,16 @@
 extends Node
 
+signal resource_event_emitted(event: Dictionary)
+signal action_preview_updated(preview: Dictionary)
+
 const TypeChartUtil = preload("res://core/TypeChart.gd")
 const CARD_RANGE := 3
 const SUMMON_COST := 50
 const RECALL_COST := 10
 const EXTRACT_COST := 20
 const BATTLE_LOG_LIMIT := 80
+const RESOURCE_EVENT_LIMIT := 120
+const NO_SKILL_AP_COST := 50.0
 const CARD_DEFS := {
 	"haste": {"name": "高速组件", "cost": 30, "cooldown": 2, "effect": "目标宝可梦下一次移动距离 +2，移动后消耗。"},
 	"shield": {"name": "小型护盾", "cost": 20, "cooldown": 2, "effect": "目标友方获得 30 护盾，护盾会抵消之后受到的伤害。"},
@@ -62,11 +67,14 @@ var _skill_preview_entries: Array[Dictionary] = []
 var _skill_preview_markers: Array[Label] = []
 var _battle_logs: Array[Dictionary] = []
 var _pending_turn_logs: Array[Dictionary] = []
+var _resource_events: Array[Dictionary] = []
+var _current_action_preview := {}
 var _log_sequence: int = 0
 var _enemy_threat_visible: bool = false
 var _turn_start_pos: Vector2i = Vector2i(-1, -1)
 var _turn_start_snapshot := {}
 var _turn_has_support_action: bool = false
+var _turn_ap_cost: float = NO_SKILL_AP_COST
 var _extract_undo_available: bool = false
 var _extract_undo_snapshot := {}
 var _last_reversible_extract_log_index: int = -1
@@ -174,23 +182,23 @@ func _build_mvp_ui() -> void:
 	log_box.add_child(_log_label)
 
 func _spawn_units() -> void:
-	var fire_skill := _make_skill("火花", 26, 2, 30, Enums.ElementType.FIRE, 20)
-	var flame_line := _make_skill("火焰喷射", 42, 3, 75, Enums.ElementType.FIRE, 35, false, 1)
-	var vine_skill := _make_skill("藤鞭", 24, 3, 35, Enums.ElementType.GRASS, 18, false)
-	var snare_skill := _make_skill("缠绕", 14, 3, 45, Enums.ElementType.GRASS, 25, true)
-	var water_skill := _make_skill("水泡", 20, 3, 35, Enums.ElementType.WATER, 14)
-	var mend_skill := _make_skill("水愈", 22, 3, 40, Enums.ElementType.WATER, 0, false, 0, SkillData.EffectType.HEAL)
-	var spark_skill := _make_skill("电弧", 22, 3, 40, Enums.ElementType.ELECTRIC, 16)
-	var quick_skill := _make_skill("疾闪", 12, 2, 30, Enums.ElementType.ELECTRIC, 8)
-	var ice_skill := _make_skill("冰针", 24, 3, 40, Enums.ElementType.ICE, 18)
-	var frost_skill := _make_skill("霜缚", 16, 3, 45, Enums.ElementType.ICE, 24, true)
-	var blade_skill := _make_skill("数据短刃", 14, 1, 25, Enums.ElementType.NONE, 8)
-	var fire_bite_skill := _make_skill("火牙", 22, 1, 35, Enums.ElementType.FIRE, 10)
-	var grass_bite_skill := _make_skill("叶咬", 22, 1, 35, Enums.ElementType.GRASS, 10)
-	var water_dart_skill := _make_skill("水针", 18, 3, 45, Enums.ElementType.WATER, 10)
-	var wind_skill := _make_skill("风刃", 20, 3, 45, Enums.ElementType.FLYING, 10)
-	var ground_skill := _make_skill("地刺", 24, 2, 45, Enums.ElementType.GROUND, 12)
-	var boss_skill := _make_skill("重踏", 10, 1, 60, Enums.ElementType.GRASS, 10)
+	var fire_skill := _make_skill("火花", 26, 2, 80, Enums.ElementType.FIRE, 20)
+	var flame_line := _make_skill("火焰喷射", 42, 3, 120, Enums.ElementType.FIRE, 35, false, 1)
+	var vine_skill := _make_skill("藤鞭", 24, 3, 80, Enums.ElementType.GRASS, 18, false)
+	var snare_skill := _make_skill("缠绕", 14, 3, 100, Enums.ElementType.GRASS, 25, true)
+	var water_skill := _make_skill("水泡", 20, 3, 80, Enums.ElementType.WATER, 14)
+	var mend_skill := _make_skill("水愈", 22, 3, 100, Enums.ElementType.WATER, 0, false, 0, SkillData.EffectType.HEAL)
+	var spark_skill := _make_skill("电弧", 22, 3, 90, Enums.ElementType.ELECTRIC, 16)
+	var quick_skill := _make_skill("疾闪", 12, 2, 80, Enums.ElementType.ELECTRIC, 8)
+	var ice_skill := _make_skill("冰针", 24, 3, 90, Enums.ElementType.ICE, 18)
+	var frost_skill := _make_skill("霜缚", 16, 3, 110, Enums.ElementType.ICE, 24, true)
+	var blade_skill := _make_skill("数据短刃", 14, 1, 80, Enums.ElementType.NONE, 8)
+	var fire_bite_skill := _make_skill("火牙", 22, 1, 80, Enums.ElementType.FIRE, 10)
+	var grass_bite_skill := _make_skill("叶咬", 22, 1, 80, Enums.ElementType.GRASS, 10)
+	var water_dart_skill := _make_skill("水针", 18, 3, 90, Enums.ElementType.WATER, 10)
+	var wind_skill := _make_skill("风刃", 20, 3, 90, Enums.ElementType.FLYING, 10)
+	var ground_skill := _make_skill("地刺", 24, 2, 100, Enums.ElementType.GROUND, 12)
+	var boss_skill := _make_skill("重踏", 10, 1, 90, Enums.ElementType.GRASS, 10)
 	
 	var grass_data := _make_unit_data("藤藤兽", Enums.UnitType.PLAYER_POKEMON, 95, 15, 5, 48, 4, Color(0.25, 0.75, 0.36), Enums.ElementType.GRASS, [vine_skill, snare_skill])
 	var water_data := _make_unit_data("水跃兽", Enums.UnitType.PLAYER_POKEMON, 88, 13, 4, 52, 4, Color(0.24, 0.58, 0.86), Enums.ElementType.WATER, [water_skill, mend_skill])
@@ -310,6 +318,7 @@ func _on_unit_ready(unit: Unit) -> void:
 	_active_unit = unit
 	_active_unit.has_acted = false
 	_active_unit.has_moved = false
+	_turn_ap_cost = NO_SKILL_AP_COST
 	_capture_turn_start_state(_active_unit)
 	_turn_has_support_action = false
 	_clear_extract_undo()
@@ -327,6 +336,7 @@ func _on_unit_ready(unit: Unit) -> void:
 		var enemy_logs: Array[Dictionary] = await UnitAI.run(unit, grid_manager, _all_units)
 		for log_record in enemy_logs:
 			_add_battle_log_record(log_record)
+			_apply_log_ap_cost(log_record)
 		_end_turn()
 	else:
 		_battle_state = Enums.BattleState.PLAYER_TURN
@@ -345,13 +355,26 @@ func _end_turn() -> void:
 		return
 	_commit_pending_turn_logs()
 	if _active_unit and is_instance_valid(_active_unit):
-		_active_unit.consume_ap(Enums.MAX_AP)
+		var ap_before := _active_unit.current_ap
+		_active_unit.consume_ap(_turn_ap_cost)
+		_emit_resource_event(
+			"spend",
+			"ap",
+			-_turn_ap_cost,
+			ap_before,
+			_active_unit.current_ap,
+			_get_action_ap_reason(),
+			_active_unit,
+			null,
+			{"action_ap_cost": _turn_ap_cost}
+		)
 	_action_state = Enums.ActionState.IDLE
 	_selected_card_id = ""
 	_selected_summon_id = ""
 	_selected_skill_index = 0
 	_selected_skill_target = Vector2i(-1, -1)
 	_turn_has_support_action = false
+	_turn_ap_cost = NO_SKILL_AP_COST
 	_clear_extract_undo()
 	_move_cells.clear()
 	_attack_cells.clear()
@@ -401,26 +424,31 @@ func _on_skill_pressed(skill_index: int) -> void:
 	else:
 		grid_manager.highlight_cells(_attack_cells, GridManager.COLOR_ATTACK)
 	action_menu.hide_menu()
-	_show_tip("选择 %s 的目标。技能不消耗 AP，每次行动最多使用一次。" % skill.skill_name)
+	_show_tip("选择 %s 的目标。技能会消耗行动 AP，消耗越高下次行动越晚。" % skill.skill_name)
 
 func _on_wait_pressed() -> void:
 	if _active_unit != null and is_instance_valid(_active_unit):
 		_commit_pending_turn_logs()
 		if _has_turn_activity():
+			var end_log_text := "%s 结束行动。" % _active_unit.data.unit_name
+			if not _active_unit.has_acted:
+				end_log_text = "%s 结束行动，行动AP-%d。" % [_active_unit.data.unit_name, int(_turn_ap_cost)]
 			_add_battle_log(
-				"%s 结束行动。" % _active_unit.data.unit_name,
+				end_log_text,
 				{
 					"event_type": "end_action",
-					"actor": _unit_log_data(_active_unit)
+					"actor": _unit_log_data(_active_unit),
+					"action_ap_cost": _turn_ap_cost
 				},
 				[_unit_log_ref(_active_unit)]
 			)
 		else:
 			_add_battle_log(
-				"%s 待机。" % _active_unit.data.unit_name,
+				"%s 待机，行动AP-%d。" % [_active_unit.data.unit_name, int(_turn_ap_cost)],
 				{
 					"event_type": "wait",
-					"actor": _unit_log_data(_active_unit)
+					"actor": _unit_log_data(_active_unit),
+					"action_ap_cost": _turn_ap_cost
 				},
 				[_unit_log_ref(_active_unit)]
 			)
@@ -533,7 +561,11 @@ func _on_extract_pressed(extract_id: String) -> void:
 		_capture_extract_undo_state()
 	else:
 		_clear_extract_undo(true)
-	_sync_points -= EXTRACT_COST
+	_spend_sync(EXTRACT_COST, "提取 %s" % reserve_name, _trainer, null, {
+		"event_type": "extract",
+		"extract_id": extract_id,
+		"reserve_name": reserve_name
+	})
 	_turn_has_support_action = true
 	_apply_trainer_extract(extract_id)
 	_update_sync_ui()
@@ -638,6 +670,8 @@ func _show_skill_preview(target_pos: Vector2i) -> void:
 		else:
 			_show_tip("这个位置没有可命中的敌人。")
 		return
+	_current_action_preview = _build_action_preview(_active_unit, skill, entries, target_pos)
+	emit_signal("action_preview_updated", _current_action_preview)
 	_action_state = Enums.ActionState.CONFIRMING_SKILL
 	_selected_skill_target = target_pos
 	_skill_preview_entries = entries
@@ -654,6 +688,7 @@ func _confirm_skill_preview() -> void:
 	_commit_pending_turn_logs()
 	_clear_extract_undo(true)
 	var skill: SkillData = _active_unit.data.skills[_selected_skill_index]
+	_turn_ap_cost = skill.ap_cost
 	_execute_skill_preview(_active_unit, skill, _selected_skill_target, _skill_preview_entries)
 	if _battle_state == Enums.BattleState.BATTLE_OVER:
 		_clear_skill_preview()
@@ -701,11 +736,12 @@ func _execute_skill_preview(attacker: Unit, skill: SkillData, target_pos: Vector
 			var actual_heal := heal_target.heal(entry["heal_amount"])
 			total_heal += actual_heal
 			_add_battle_log(
-				"%s 使用 %s -> %s，回复 %d。" % [
+				"%s 使用 %s -> %s，回复 %d，行动AP-%d。" % [
 					attacker.data.unit_name,
 					skill.skill_name,
 					heal_target.data.unit_name,
-					actual_heal
+					actual_heal,
+					int(skill.ap_cost)
 				],
 				{
 					"event_type": "skill_heal",
@@ -715,7 +751,8 @@ func _execute_skill_preview(attacker: Unit, skill: SkillData, target_pos: Vector
 					"element_type": skill.element_type,
 					"target_pos": _pos_log_data(heal_target.grid_pos),
 					"heal_amount": actual_heal,
-					"target_hp_after": heal_target.current_hp
+					"target_hp_after": heal_target.current_hp,
+					"action_ap_cost": skill.ap_cost
 				},
 				[_unit_log_ref(attacker), _unit_log_ref(heal_target)]
 			)
@@ -753,6 +790,7 @@ func _execute_skill_preview(attacker: Unit, skill: SkillData, target_pos: Vector
 				depleted_count += 1
 		if target.current_hp <= 0:
 			log_parts.append("%s倒下" % target.data.unit_name)
+		log_parts.append("行动AP-%d" % int(skill.ap_cost))
 		_add_battle_log(
 			_join_strings(log_parts, "，") + "。",
 			{
@@ -769,7 +807,8 @@ func _execute_skill_preview(attacker: Unit, skill: SkillData, target_pos: Vector
 				"type_relation_text": relation,
 				"stability_damage": stability_loss,
 				"target_stability_after": target.current_stability,
-				"target_defeated": target.current_hp <= 0
+				"target_defeated": target.current_hp <= 0,
+				"action_ap_cost": skill.ap_cost
 			},
 			[_unit_log_ref(attacker), _unit_log_ref(target)]
 		)
@@ -868,7 +907,7 @@ func _resolve_recall(grid_pos: Vector2i) -> void:
 	if _sync_points < RECALL_COST:
 		_show_tip("同步率不足，回收需要 %d。" % RECALL_COST)
 		return
-	_sync_points -= RECALL_COST
+	_spend_sync(RECALL_COST, "回收", _trainer, target, {"event_type": "recall"})
 	_turn_has_support_action = true
 	_commit_pending_turn_logs()
 	_clear_extract_undo(true)
@@ -896,7 +935,11 @@ func _summon_reserve(grid_pos: Vector2i) -> void:
 	if not _reserve_units.has(reserve_name):
 		_show_tip("%s 不在后备中，不能召唤。" % reserve_name)
 		return
-	_sync_points -= SUMMON_COST
+	_spend_sync(SUMMON_COST, "召唤 %s" % reserve_name, _trainer, null, {
+		"event_type": "summon",
+		"summon_id": _selected_summon_id,
+		"reserve_name": reserve_name
+	})
 	_turn_has_support_action = true
 	_commit_pending_turn_logs()
 	_clear_extract_undo(true)
@@ -1035,7 +1078,11 @@ func _can_pay_card(card_id: String) -> bool:
 func _pay_card(card_id: String) -> void:
 	var card_def = CARD_DEFS[card_id]
 	_commit_pending_turn_logs()
-	_sync_points -= card_def["cost"]
+	_spend_sync(int(card_def["cost"]), str(card_def["name"]), _trainer, null, {
+		"event_type": "card",
+		"card_id": card_id,
+		"card_name": str(card_def["name"])
+	})
 	_card_cooldowns[card_id] = card_def["cooldown"]
 	_turn_has_support_action = true
 	_clear_extract_undo(true)
@@ -1051,7 +1098,73 @@ func _gain_sync(amount: int, reason: String = "") -> void:
 	var gained := _sync_points - before
 	_update_sync_ui()
 	if gained > 0:
+		_emit_resource_event(
+			"gain",
+			"sync",
+			gained,
+			before,
+			_sync_points,
+			reason,
+			_active_unit,
+			null,
+			{"sync_gain": gained}
+		)
 		_show_sync_feedback(gained, reason)
+
+func _spend_sync(amount: int, reason: String, actor: Unit = null, target: Unit = null, metadata: Dictionary = {}) -> int:
+	var before := _sync_points
+	var spent: int = min(amount, _sync_points)
+	_sync_points = max(_sync_points - amount, 0)
+	_update_sync_ui()
+	if spent > 0:
+		var event_metadata := metadata.duplicate(true)
+		event_metadata["sync_cost"] = amount
+		_emit_resource_event(
+			"spend",
+			"sync",
+			-spent,
+			before,
+			_sync_points,
+			reason,
+			actor,
+			target,
+			event_metadata
+		)
+		_show_sync_feedback(-spent, reason)
+	return spent
+
+func _emit_resource_event(
+	event_type: String,
+	resource_type: String,
+	amount: float,
+	before_value: float,
+	after_value: float,
+	reason: String = "",
+	actor: Unit = null,
+	target: Unit = null,
+	metadata: Dictionary = {}
+) -> Dictionary:
+	var event := {
+		"event_type": event_type,
+		"resource_type": resource_type,
+		"amount": amount,
+		"before": before_value,
+		"after": after_value,
+		"reason": reason,
+		"actor": _unit_log_data(actor),
+		"target": _unit_log_data(target),
+		"metadata": metadata.duplicate(true)
+	}
+	_resource_events.append(event)
+	while _resource_events.size() > RESOURCE_EVENT_LIMIT:
+		_resource_events.pop_front()
+	emit_signal("resource_event_emitted", event)
+	return event
+
+func _get_action_ap_reason() -> String:
+	if _active_unit != null and is_instance_valid(_active_unit) and _active_unit.has_acted:
+		return "技能行动"
+	return "未使用技能"
 
 func _active_pokemon_count() -> int:
 	var count := 0
@@ -1059,6 +1172,11 @@ func _active_pokemon_count() -> int:
 		if unit.is_ally() and unit.data.unit_type == Enums.UnitType.PLAYER_POKEMON:
 			count += 1
 	return count
+
+func _apply_log_ap_cost(log_record: Dictionary) -> void:
+	var metadata: Dictionary = log_record.get("metadata", {})
+	if metadata.has("action_ap_cost"):
+		_turn_ap_cost = float(metadata["action_ap_cost"])
 
 func _has_turn_activity() -> bool:
 	return _active_unit != null \
@@ -1090,7 +1208,12 @@ func _show_sync_feedback(amount: int, reason: String) -> void:
 	var reason_text := ""
 	if reason != "":
 		reason_text = " " + reason
-	_sync_feedback_label.text = "+%d 同步率%s" % [amount, reason_text]
+	var sign := "+" if amount >= 0 else ""
+	_sync_feedback_label.text = "%s%d 同步率%s" % [sign, amount, reason_text]
+	if amount >= 0:
+		_sync_feedback_label.add_theme_color_override("font_color", Color(0.55, 0.9, 1.0, 1.0))
+	else:
+		_sync_feedback_label.add_theme_color_override("font_color", Color(1.0, 0.78, 0.5, 1.0))
 	_sync_feedback_label.modulate.a = 1.0
 	_sync_feedback_label.position = Vector2(492, 6)
 	_sync_feedback_label.visible = true
@@ -1443,7 +1566,12 @@ func _describe_skill(skill: SkillData) -> String:
 	var finish_text := "确认后自动结束回合"
 	if _is_trainer_turn():
 		finish_text = "确认后仍可继续指挥，需手动结束行动"
-	parts.append("%s：射程 %d，%s。" % [skill.skill_name, skill.atk_range, target_text])
+	parts.append("%s：射程 %d，%s，行动 AP 消耗 %d。" % [
+		skill.skill_name,
+		skill.atk_range,
+		target_text,
+		int(skill.ap_cost)
+	])
 	if skill.effect_type == SkillData.EffectType.HEAL:
 		parts.append("基础回复 %d + %s 攻击 %d；可选择自己或友方，%s。" % [skill.damage, _active_unit.data.unit_name, _active_unit.data.attack, finish_text])
 	elif skill.stability_damage > 0:
@@ -1628,6 +1756,43 @@ func _get_skill_area_cells(skill: SkillData, target_pos: Vector2i) -> Array[Vect
 		return [target_pos]
 	return _cells_in_range(target_pos, skill.area_radius)
 
+func _build_action_preview(attacker: Unit, skill: SkillData, entries: Array[Dictionary], target_pos: Vector2i) -> Dictionary:
+	var targets: Array[Dictionary] = []
+	for entry in entries:
+		var target: Unit = entry["target"]
+		var target_preview := {
+			"target": _unit_log_data(target),
+			"target_pos": _pos_log_data(target.grid_pos)
+		}
+		if entry.has("heal_amount"):
+			target_preview["heal_amount"] = int(entry["heal_amount"])
+			target_preview["hp_after"] = min(target.current_hp + int(entry["heal_amount"]), target.data.max_hp)
+		else:
+			target_preview["hp_damage"] = int(entry["hp_damage"])
+			target_preview["hp_after"] = max(target.current_hp - int(entry["hp_damage"]), 0)
+			target_preview["stability_damage"] = int(entry["stability_damage"])
+			target_preview["type_multiplier"] = TypeChartUtil.get_damage_multiplier(skill.element_type, target.data.get_element_types())
+		targets.append(target_preview)
+	return {
+		"event_type": "skill_action_preview",
+		"actor": _unit_log_data(attacker),
+		"skill_name": skill.skill_name,
+		"target_pos": _pos_log_data(target_pos),
+		"resources": {
+			"ap": {
+				"before": attacker.current_ap,
+				"after": attacker.current_ap - skill.ap_cost,
+				"cost": skill.ap_cost
+			},
+			"sync": {
+				"before": _sync_points,
+				"after": _sync_points,
+				"delta": 0
+			}
+		},
+		"targets": targets
+	}
+
 func _get_raw_skill_damage(attacker: Unit, skill: SkillData) -> int:
 	var raw_damage := skill.damage + attacker.data.attack
 	if attacker.power_boost_next_attack:
@@ -1662,6 +1827,7 @@ func _show_preview_panel(attacker: Unit, skill: SkillData, entries: Array[Dictio
 	var total_damage := 0
 	var lines: Array[String] = []
 	lines.append("%s -> %s" % [attacker.data.unit_name, skill.skill_name])
+	lines.append("行动 AP %.0f -> %.0f" % [attacker.current_ap, attacker.current_ap - skill.ap_cost])
 	if skill.area_radius > 0:
 		lines.append("范围命中 %d 个目标" % entries.size())
 	if skill.effect_type == SkillData.EffectType.HEAL:
@@ -1734,6 +1900,8 @@ func _clear_skill_preview() -> void:
 	if is_instance_valid(_log_panel):
 		_log_panel.visible = true
 	_clear_preview_markers()
+	_current_action_preview.clear()
+	emit_signal("action_preview_updated", _current_action_preview)
 
 func _clear_preview_markers() -> void:
 	for marker in _skill_preview_markers:
