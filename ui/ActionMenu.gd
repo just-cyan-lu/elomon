@@ -16,6 +16,7 @@ var _btn_skill2: Button
 var _btn_wait: Button
 var _btn_summon: Button
 var _btn_recall: Button
+var _btn_sync_root: Button
 var _btn_group_cards: Button
 var _btn_group_summon: Button
 var _btn_group_extract: Button
@@ -24,6 +25,8 @@ var _extract_buttons := {}
 var _summon_buttons := {}
 var _descriptions := {}
 var _trainer_group := "cards"
+var _sync_menu_open := false
+var _sync_action_used := false
 var _is_trainer_context := false
 
 func _ready() -> void:
@@ -44,9 +47,10 @@ func _ready() -> void:
 	_bind_hover(_btn_skill1, "skill1")
 	_bind_hover(_btn_wait, "wait")
 	_btn_skill2 = _add_button("技能2", "skill2", func(): emit_signal("skill2_pressed"))
-	_btn_group_cards = _add_button("指令卡", "group_cards", func(): _set_trainer_group("cards"))
-	_btn_group_summon = _add_button("召唤", "group_summon", func(): _set_trainer_group("summon"))
+	_btn_sync_root = _add_button("同步率", "group_sync", func(): _toggle_sync_menu())
+	_btn_group_cards = _add_button("指令", "group_cards", func(): _set_trainer_group("cards"))
 	_btn_group_extract = _add_button("提取", "group_extract", func(): _set_trainer_group("extract"))
+	_btn_group_summon = _add_button("召唤", "group_summon", func(): _set_trainer_group("summon"))
 	_btn_summon = _add_button("召藤", "summon_grass", func(): emit_signal("summon_pressed", "grass"))
 	_btn_recall = _add_button("回收", "recall", func(): emit_signal("recall_pressed"))
 	_summon_buttons["grass"] = _btn_summon
@@ -110,28 +114,49 @@ func set_wait_label(label: String) -> void:
 
 func set_context(is_trainer_context: bool) -> void:
 	_is_trainer_context = is_trainer_context
+	if not _is_trainer_context:
+		_sync_menu_open = false
+	_sync_context_visibility()
+
+func set_sync_action_used(used: bool) -> void:
+	_sync_action_used = used
+	if _sync_action_used:
+		_sync_menu_open = false
 	_sync_context_visibility()
 
 func set_option_descriptions(descriptions: Dictionary) -> void:
 	_descriptions = descriptions.duplicate()
+
+func _toggle_sync_menu() -> void:
+	if not _is_trainer_context or _sync_action_used:
+		return
+	_sync_menu_open = not _sync_menu_open
+	_sync_context_visibility()
 
 func _set_trainer_group(group_name: String) -> void:
 	_trainer_group = group_name
 	_sync_context_visibility()
 
 func _sync_context_visibility() -> void:
+	if _btn_sync_root != null:
+		_btn_sync_root.visible = _is_trainer_context
+		_btn_sync_root.disabled = _sync_action_used
+		if _sync_action_used:
+			_btn_sync_root.text = "同步率已用"
+		else:
+			_btn_sync_root.text = "[同步率]" if _sync_menu_open else "同步率"
 	var group_buttons := [_btn_group_cards, _btn_group_summon, _btn_group_extract]
 	for button in group_buttons:
 		if button != null:
-			button.visible = _is_trainer_context
+			button.visible = _is_trainer_context and _sync_menu_open and not _sync_action_used
 	if _btn_recall != null:
-		_btn_recall.visible = _is_trainer_context and _trainer_group == "cards"
+		_btn_recall.visible = _is_trainer_context and _sync_menu_open and not _sync_action_used and _trainer_group == "cards"
 	for card_id in _card_buttons:
-		_card_buttons[card_id].visible = _is_trainer_context and _trainer_group == "cards"
+		_card_buttons[card_id].visible = _is_trainer_context and _sync_menu_open and not _sync_action_used and _trainer_group == "cards"
 	for summon_id in _summon_buttons:
-		_summon_buttons[summon_id].visible = _is_trainer_context and _trainer_group == "summon"
+		_summon_buttons[summon_id].visible = _is_trainer_context and _sync_menu_open and not _sync_action_used and _trainer_group == "summon"
 	for extract_id in _extract_buttons:
-		_extract_buttons[extract_id].visible = _is_trainer_context and _trainer_group == "extract"
+		_extract_buttons[extract_id].visible = _is_trainer_context and _sync_menu_open and not _sync_action_used and _trainer_group == "extract"
 	if _btn_group_cards != null:
 		_btn_group_cards.text = "[指令]" if _trainer_group == "cards" else "指令"
 	if _btn_group_summon != null:

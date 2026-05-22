@@ -49,7 +49,7 @@ var _reserve_units: Dictionary = {}
 var _trainer_extract_id: String = ""
 var _captured_names: Array[String] = []
 
-var _sync_points: int = 70
+var _sync_points: int = 100
 var _selected_card_id: String = ""
 var _selected_summon_id: String = ""
 var _selected_skill_index: int = 0
@@ -499,6 +499,8 @@ func _on_summon_pressed(summon_id: String) -> void:
 	if not _is_trainer_turn():
 		_show_tip("只有训练师行动时可以召唤。")
 		return
+	if not _can_use_sync_action("召唤"):
+		return
 	if not SUMMON_DEFS.has(summon_id):
 		return
 	var summon_def = SUMMON_DEFS[summon_id]
@@ -520,6 +522,8 @@ func _on_recall_pressed() -> void:
 	if not _is_trainer_turn():
 		_show_tip("只有训练师行动时可以回收。")
 		return
+	if not _can_use_sync_action("回收"):
+		return
 	_selected_card_id = "recall"
 	_action_state = Enums.ActionState.SELECTING_CARD
 	_card_cells = _cells_in_range(_trainer.grid_pos, CARD_RANGE)
@@ -530,6 +534,8 @@ func _on_recall_pressed() -> void:
 func _on_card_pressed(card_id: String) -> void:
 	if not _is_trainer_turn():
 		_show_tip("只有训练师行动时可以刷指令卡。")
+		return
+	if not _can_use_sync_action("指令"):
 		return
 	if not _can_pay_card(card_id):
 		return
@@ -543,6 +549,8 @@ func _on_card_pressed(card_id: String) -> void:
 func _on_extract_pressed(extract_id: String) -> void:
 	if not _is_trainer_turn():
 		_show_tip("只有训练师行动时可以提取后备能力。")
+		return
+	if not _can_use_sync_action("提取"):
 		return
 	if not EXTRACT_DEFS.has(extract_id):
 		return
@@ -601,6 +609,12 @@ func _on_extract_pressed(extract_id: String) -> void:
 		)
 	_show_action_menu()
 	_show_tip("训练师提取了 %s：属性和技能已切换，直到下一次提取。" % reserve_name)
+
+func _can_use_sync_action(action_name: String) -> bool:
+	if _turn_has_support_action:
+		_show_tip("本回合已经使用过同步率操作，不能再%s。每个训练师回合只能在指令、提取、召唤、回收或封印中选择 1 次。" % action_name)
+		return false
+	return true
 
 func _on_cell_clicked(grid_pos: Vector2i) -> void:
 	if _battle_state != Enums.BattleState.PLAYER_TURN: return
@@ -1550,6 +1564,7 @@ func _update_action_menu_content() -> void:
 		skill_names.append(skill.skill_name)
 	action_menu.set_skill_labels(skill_names)
 	action_menu.set_context(_is_trainer_turn())
+	action_menu.set_sync_action_used(_turn_has_support_action)
 	action_menu.set_card_labels(_build_card_labels())
 	action_menu.set_summon_labels(_build_summon_labels())
 	action_menu.set_extract_labels(_build_extract_labels())
@@ -1600,9 +1615,13 @@ func _build_action_descriptions() -> Dictionary:
 			descriptions["wait"] += timing_text + "。"
 	else:
 		descriptions["wait"] = "待机：不移动、不使用技能，直接结束当前单位行动；%s。" % _get_action_timing_text(NO_SKILL_AP_COST)
-	descriptions["group_cards"] = "指令卡：使用同步率强化、保护、回收或封印目标。"
-	descriptions["group_summon"] = "召唤：选择一只仍在后备中的宝可梦入场。召唤会让对应提取暂时不可用。"
-	descriptions["group_extract"] = "提取：切换训练师当前属性和技能，持续到下一次提取。未行动前可按 Esc 撤销。"
+	if _turn_has_support_action:
+		descriptions["group_sync"] = "同步率：本回合已经使用过 1 次同步率操作。若刚提取且尚未行动，可按 Esc 撤销。"
+	else:
+		descriptions["group_sync"] = "同步率：本回合可在指令、提取、召唤、回收或封印中选择 1 次。移动和技能不占用这次机会。"
+	descriptions["group_cards"] = "指令：消耗同步率强化、保护、回收或封印目标。本回合与提取、召唤共享 1 次同步率操作。"
+	descriptions["group_summon"] = "召唤：选择一只仍在后备中的宝可梦入场。召唤会让对应提取暂时不可用，并占用本回合同步率操作。"
+	descriptions["group_extract"] = "提取：切换训练师当前属性和技能，持续到下一次提取；占用本回合同步率操作。未行动前可按 Esc 撤销。"
 	for i in range(2):
 		var key := "skill%d" % (i + 1)
 		if i < _active_unit.data.skills.size():
