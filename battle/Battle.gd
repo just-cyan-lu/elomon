@@ -28,11 +28,11 @@ const SUMMON_DEFS := {
 	"ice": {"name": "召唤冰羽兽", "reserve": "冰羽兽", "short": "召冰", "effect": "冰属性压制型后备，擅长克制草/飞/地属性目标。"},
 }
 const EXTRACT_DEFS := {
-	"fire": {"name": "提取火狐兽", "reserve": "火狐兽", "skill_index": 0, "effect": "训练师切换为火属性，技能替换为火花；克制草/冰，被水/地属性压制。"},
-	"grass": {"name": "提取藤藤兽", "reserve": "藤藤兽", "skill_index": 1, "effect": "训练师切换为草属性，技能替换为缠绕；被火系克制，抵抗水系。"},
-	"water": {"name": "提取水跃兽", "reserve": "水跃兽", "skill_index": 1, "effect": "训练师切换为水属性，技能替换为水愈；抵抗火系，被草系克制。"},
-	"electric": {"name": "提取电花鼠", "reserve": "电花鼠", "skill_index": 0, "effect": "训练师切换为雷属性，技能替换为电弧；克制水/飞，被地属性压制。"},
-	"ice": {"name": "提取冰羽兽", "reserve": "冰羽兽", "skill_index": 0, "effect": "训练师切换为冰属性，技能替换为冰针；克制草/飞/地，被火属性压制。"},
+	"fire": {"name": "提取火狐兽", "reserve": "火狐兽", "element_label": "火", "role": "输出", "skill_name": "火花", "skill_index": 0, "effect": "训练师切换为火属性，技能替换为火花；克制草/冰，被水/地属性压制。"},
+	"grass": {"name": "提取藤藤兽", "reserve": "藤藤兽", "element_label": "草", "role": "控制", "skill_name": "缠绕", "skill_index": 1, "effect": "训练师切换为草属性，技能替换为缠绕；被火系克制，抵抗水系。"},
+	"water": {"name": "提取水跃兽", "reserve": "水跃兽", "element_label": "水", "role": "治疗", "skill_name": "水愈", "skill_index": 1, "effect": "训练师切换为水属性，技能替换为水愈；抵抗火系，被草系克制。"},
+	"electric": {"name": "提取电花鼠", "reserve": "电花鼠", "element_label": "雷", "role": "高速", "skill_name": "电弧", "skill_index": 0, "effect": "训练师切换为雷属性，技能替换为电弧；克制水/飞，被地属性压制。"},
+	"ice": {"name": "提取冰羽兽", "reserve": "冰羽兽", "element_label": "冰", "role": "压制", "skill_name": "冰针", "skill_index": 0, "effect": "训练师切换为冰属性，技能替换为冰针；克制草/飞/地，被火属性压制。"},
 }
 
 # 子节点引用（在 Battle.tscn 场景里赋值，名称必须一致）
@@ -256,7 +256,7 @@ func _populate_prep_extract_options() -> void:
 		if not EXTRACT_DEFS.has(current_id):
 			continue
 		_prep_extract_ids.append(current_id)
-		_prep_extract_select.add_item(_get_extract_short_name(current_id) + " " + str(EXTRACT_DEFS[current_id]["reserve"]))
+		_prep_extract_select.add_item(_get_extract_option_label(current_id))
 		if current_id == _prep_extract_id:
 			selected_index = _prep_extract_ids.size() - 1
 	_prep_extract_select.select(selected_index)
@@ -299,7 +299,7 @@ func _update_prep_message() -> void:
 		names.append(_get_pokemon_name(pokemon_id))
 	_show_prep_message("开局：训练师 + %s。默认提取：%s。" % [
 		_join_strings(names, "、"),
-		_get_pokemon_name(_prep_extract_id)
+		_get_extract_display_name(_prep_extract_id, true)
 	])
 
 func _show_prep_message(text: String) -> void:
@@ -322,7 +322,7 @@ func _start_battle_from_prep() -> void:
 	_add_battle_log(
 		"战斗开始。开局上场 %s，训练师默认提取 %s。" % [
 			_get_selected_pokemon_names_text(),
-			_get_pokemon_name(_prep_extract_id)
+			_get_extract_display_name(_prep_extract_id, true)
 		],
 		{
 			"event_type": "battle_start",
@@ -343,20 +343,43 @@ func _get_pokemon_name(pokemon_id: String) -> String:
 		return str(SUMMON_DEFS[pokemon_id]["reserve"])
 	return pokemon_id
 
+func _get_extract_summary(extract_id: String, include_skill: bool = true) -> String:
+	if not EXTRACT_DEFS.has(extract_id):
+		return "基础"
+	var extract_def = EXTRACT_DEFS[extract_id]
+	var parts: Array[String] = [
+		str(extract_def["element_label"]),
+		str(extract_def["role"])
+	]
+	if include_skill:
+		parts.append(str(extract_def["skill_name"]))
+	return _join_strings(parts, "/")
+
+func _get_extract_display_name(extract_id: String, include_skill: bool = false) -> String:
+	if not EXTRACT_DEFS.has(extract_id):
+		return "基础"
+	var extract_def = EXTRACT_DEFS[extract_id]
+	return "%s（%s）" % [
+		str(extract_def["reserve"]),
+		_get_extract_summary(extract_id, include_skill)
+	]
+
+func _get_extract_option_label(extract_id: String) -> String:
+	if not EXTRACT_DEFS.has(extract_id):
+		return extract_id
+	var extract_def = EXTRACT_DEFS[extract_id]
+	return "%s / %s" % [
+		str(extract_def["reserve"]),
+		_get_extract_summary(extract_id, true)
+	]
+
 func _get_pokemon_prep_label(pokemon_id: String) -> String:
-	match pokemon_id:
-		"fire":
-			return "火狐兽  输出"
-		"grass":
-			return "藤藤兽  控制"
-		"water":
-			return "水跃兽  治疗"
-		"electric":
-			return "电花鼠  高速"
-		"ice":
-			return "冰羽兽  压制"
-		_:
-			return pokemon_id
+	if EXTRACT_DEFS.has(pokemon_id):
+		return "%s  %s" % [
+			_get_pokemon_name(pokemon_id),
+			_get_extract_summary(pokemon_id, false)
+		]
+	return pokemon_id
 
 func _spawn_units() -> void:
 	var fire_skill := _make_skill("火花", 26, 2, 100, Enums.ElementType.FIRE, 20)
@@ -753,6 +776,7 @@ func _on_extract_pressed(extract_id: String) -> void:
 		return
 	var extract_def = EXTRACT_DEFS[extract_id]
 	var reserve_name := str(extract_def["reserve"])
+	var extract_display := _get_extract_display_name(extract_id, true)
 	if not _reserve_units.has(reserve_name):
 		_show_tip("%s 不在后备中，不能提取它的能力。" % reserve_name)
 		return
@@ -776,11 +800,12 @@ func _on_extract_pressed(extract_id: String) -> void:
 	_update_sync_ui()
 	if can_undo_extract:
 		var extract_log_index := _queue_battle_log(
-			"训练师提取 %s，消耗同步率 %d。" % [reserve_name, EXTRACT_COST],
+			"训练师提取 %s，消耗同步率 %d。" % [extract_display, EXTRACT_COST],
 			{
 				"event_type": "extract",
 				"actor": _unit_log_data(_trainer),
 				"reserve_name": reserve_name,
+				"extract_form": _get_extract_summary(extract_id, true),
 				"extract_id": extract_id,
 				"sync_cost": EXTRACT_COST,
 				"unit_id_todo": "TODO: add stable ids for reserve units"
@@ -790,11 +815,12 @@ func _on_extract_pressed(extract_id: String) -> void:
 		_last_reversible_extract_log_index = extract_log_index
 	else:
 		_add_battle_log(
-			"训练师提取 %s，消耗同步率 %d。" % [reserve_name, EXTRACT_COST],
+			"训练师提取 %s，消耗同步率 %d。" % [extract_display, EXTRACT_COST],
 			{
 				"event_type": "extract",
 				"actor": _unit_log_data(_trainer),
 				"reserve_name": reserve_name,
+				"extract_form": _get_extract_summary(extract_id, true),
 				"extract_id": extract_id,
 				"sync_cost": EXTRACT_COST,
 				"unit_id_todo": "TODO: add stable ids for reserve units"
@@ -802,7 +828,7 @@ func _on_extract_pressed(extract_id: String) -> void:
 			[_unit_log_ref(_trainer)]
 		)
 	_show_action_menu()
-	_show_tip("训练师提取了 %s：属性和技能已切换，直到下一次提取。" % reserve_name)
+	_show_tip("训练师提取了 %s：属性和技能已切换，直到下一次提取。" % extract_display)
 
 func _can_use_sync_action(action_name: String) -> bool:
 	if _turn_has_support_action:
@@ -1665,7 +1691,7 @@ func _get_reserve_summary() -> String:
 func _get_trainer_form_summary() -> String:
 	if _trainer_extract_id == "" or not EXTRACT_DEFS.has(_trainer_extract_id):
 		return "基础"
-	return str(EXTRACT_DEFS[_trainer_extract_id]["reserve"])
+	return _get_extract_display_name(_trainer_extract_id, false)
 
 func _show_tip(text: String) -> void:
 	if is_instance_valid(_tip_label):
@@ -1900,6 +1926,10 @@ func _describe_summon(summon_id: String) -> String:
 func _describe_extract(extract_id: String) -> String:
 	var extract_def = EXTRACT_DEFS[extract_id]
 	var reserve_name := str(extract_def["reserve"])
+	var form_text := "%s / %s" % [
+		reserve_name,
+		_get_extract_summary(extract_id, true)
+	]
 	var status := "可用"
 	if _trainer_extract_id == extract_id:
 		status = "当前形态"
@@ -1907,11 +1937,12 @@ func _describe_extract(extract_id: String) -> String:
 		status = "%s 不在后备" % reserve_name
 	elif _sync_points < EXTRACT_COST:
 		status = "同步率不足"
-	return "%s：消耗 %d，同步率当前 %d，自然上限 %d。%s\n状态：%s" % [
+	return "%s：消耗 %d，同步率当前 %d，自然上限 %d。\n同步形态：%s。\n%s\n状态：%s" % [
 		extract_def["name"],
 		EXTRACT_COST,
 		_sync_points,
 		SYNC_NATURAL_CAP,
+		form_text,
 		extract_def["effect"],
 		status
 	]

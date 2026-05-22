@@ -69,11 +69,11 @@ MVP 样板战为了快速迭代，暂时在 `Battle.gd` 中动态创建 `UnitDat
 
 当前指令卡需要先点按钮，再点目标格。目标合法性由 `Battle.gd` 检查，并通过顶部提示文字反馈。
 
-后备能力提取不是指令卡，不需要选择目标格。提取使用 `_reserve_units` 判断可用性：只有对应宝可梦仍在后备中时才能提取。战斗中提取消耗 `EXTRACT_COST (100)` 同步率并设置 `_trainer_extract_id`，随后训练师的 `UnitData.element_types` 和 `skills` 被替换为对应后备形态；效果持续到下一次提取。若对应宝可梦被召唤上场，按钮需要显示离场状态并在悬停说明中提示不可用原因。
+后备能力提取不是指令卡，不需要选择目标格。提取使用 `_reserve_units` 判断可用性：只有对应宝可梦仍在后备中时才能提取。战斗中提取消耗 `EXTRACT_COST (100)` 同步率并设置 `_trainer_extract_id`，随后训练师的 `UnitData.element_types` 和 `skills` 被替换为对应后备形态；效果持续到下一次提取。若对应宝可梦被召唤上场，按钮需要显示离场状态并在悬停说明中提示不可用原因。提取形态的可读信息由 `EXTRACT_DEFS` 统一维护，必须包含 `element_label`、`role`、`skill_name`，UI 统一按“宝可梦 / 属性 / 定位 / 提取技能”展示。
 
 训练师在本回合刚提取能力、且还没有移动、使用技能、刷卡、召唤或回收时，按 `Esc` 需要撤销这次提取：恢复提取前的属性、技能和形态，并返还同步率。任何实际影响战局的操作发生后，都要清除这次提取撤销机会。
 
-后备召唤由 `SUMMON_DEFS` 驱动，按钮与说明需要根据 `_reserve_units` 显示可用或离场状态。新增可召唤后备时，需要同时补 `POKEMON_IDS`、`SUMMON_DEFS`、`EXTRACT_DEFS`、菜单按钮、战前准备标签和 MVP 文档说明。
+后备召唤由 `SUMMON_DEFS` 驱动，按钮与说明需要根据 `_reserve_units` 显示可用或离场状态。新增可召唤后备时，需要同时补 `POKEMON_IDS`、`SUMMON_DEFS`、`EXTRACT_DEFS`、菜单按钮和 MVP 文档说明；战前准备标签从 `EXTRACT_DEFS` 的展示字段自动生成。
 
 选择移动、技能、指令卡或召唤后，可以按 `Esc`（Godot 默认 `ui_cancel`）取消当前选择并回到行动菜单。技能伤害/治疗预览确认中按 `Esc` 会返回技能选格状态，而不是直接退出整个行动。
 
