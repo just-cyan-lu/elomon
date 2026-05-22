@@ -7,11 +7,13 @@ const TypeChartUtil = preload("res://core/TypeChart.gd")
 const CARD_RANGE := 3
 const SUMMON_COST := 50
 const RECALL_COST := 10
-const EXTRACT_COST := 20
+const EXTRACT_COST := 100
 const BATTLE_LOG_LIMIT := 80
 const RESOURCE_EVENT_LIMIT := 120
 const NO_SKILL_AP_COST := 50.0
 const SYNC_NATURAL_CAP := 100
+const STARTING_POKEMON_LIMIT := 2
+const POKEMON_IDS := ["fire", "grass", "water", "electric", "ice"]
 const CARD_DEFS := {
 	"haste": {"name": "高速组件", "cost": 30, "cooldown": 2, "effect": "目标宝可梦下一次移动距离 +2，移动后消耗。"},
 	"shield": {"name": "小型护盾", "cost": 20, "cooldown": 2, "effect": "目标友方获得 30 护盾，护盾会抵消之后受到的伤害。"},
@@ -19,12 +21,14 @@ const CARD_DEFS := {
 	"capture": {"name": "空白封印卡", "cost": 40, "cooldown": 3, "effect": "封印稳定度归零且 HP 低于 40% 的野生宝可梦。"},
 }
 const SUMMON_DEFS := {
+	"fire": {"name": "召唤火狐兽", "reserve": "火狐兽", "short": "召火", "effect": "火属性输出型后备，擅长压制草/冰属性和打爆发。"},
 	"grass": {"name": "召唤藤藤兽", "reserve": "藤藤兽", "short": "召藤", "effect": "草属性控制型后备，擅长削稳定度和牵制水/地属性。"},
 	"water": {"name": "召唤水跃兽", "reserve": "水跃兽", "short": "召水", "effect": "水属性支援型后备，能治疗友方并压制火/地属性。"},
 	"electric": {"name": "召唤电花鼠", "reserve": "电花鼠", "short": "召电", "effect": "雷属性高速后备，擅长处理中远程水/飞属性目标。"},
 	"ice": {"name": "召唤冰羽兽", "reserve": "冰羽兽", "short": "召冰", "effect": "冰属性压制型后备，擅长克制草/飞/地属性目标。"},
 }
 const EXTRACT_DEFS := {
+	"fire": {"name": "提取火狐兽", "reserve": "火狐兽", "skill_index": 0, "effect": "训练师切换为火属性，技能替换为火花；克制草/冰，被水/地属性压制。"},
 	"grass": {"name": "提取藤藤兽", "reserve": "藤藤兽", "skill_index": 1, "effect": "训练师切换为草属性，技能替换为缠绕；被火系克制，抵抗水系。"},
 	"water": {"name": "提取水跃兽", "reserve": "水跃兽", "skill_index": 1, "effect": "训练师切换为水属性，技能替换为水愈；抵抗火系，被草系克制。"},
 	"electric": {"name": "提取电花鼠", "reserve": "电花鼠", "skill_index": 0, "effect": "训练师切换为雷属性，技能替换为电弧；克制水/飞，被地属性压制。"},
@@ -45,6 +49,7 @@ var _active_unit: Unit = null
 var _trainer: Unit = null
 var _trainer_disabled: bool = false
 var _all_units: Array[Unit] = []
+var _pokemon_roster: Dictionary = {}
 var _reserve_units: Dictionary = {}
 var _trainer_extract_id: String = ""
 var _captured_names: Array[String] = []
@@ -56,6 +61,14 @@ var _selected_skill_index: int = 0
 var _sync_label: Label
 var _sync_feedback_label: Label
 var _tip_label: Label
+var _prep_panel: PanelContainer
+var _prep_message_label: Label
+var _prep_start_button: Button
+var _prep_extract_select: OptionButton
+var _prep_pokemon_buttons := {}
+var _prep_extract_ids: Array[String] = []
+var _prep_selected_pokemon_ids: Array[String] = ["fire", "grass"]
+var _prep_extract_id: String = "water"
 var _enemy_threat_button: Button
 var _preview_panel: PanelContainer
 var _preview_label: Label
@@ -88,12 +101,9 @@ func _ready() -> void:
 	result_label.visible = false
 	_build_mvp_ui()
 	grid_manager.setup_mvp_terrain()
-	_spawn_units()
 	_connect_signals()
-	ctb_system.register_units(_all_units)
 	_update_sync_ui()
-	_add_battle_log("战斗开始。", {"event_type": "battle_start"})
-	ctb_system.start()
+	_build_prep_panel()
 
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_cancel"):
@@ -181,6 +191,173 @@ func _build_mvp_ui() -> void:
 	_log_label.add_theme_color_override("default_color", Color(0.86, 0.88, 0.9, 1.0))
 	log_box.add_child(_log_label)
 
+func _build_prep_panel() -> void:
+	_prep_panel = PanelContainer.new()
+	_prep_panel.position = Vector2(154, 42)
+	_prep_panel.size = Vector2(332, 274)
+	$UI.add_child(_prep_panel)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 5)
+	_prep_panel.add_child(box)
+	var title := Label.new()
+	title.text = "战前准备"
+	title.add_theme_font_size_override("font_size", 13)
+	box.add_child(title)
+	var summary := Label.new()
+	summary.text = "选择 2 只开局宝可梦，并为训练师选择默认提取形态。"
+	summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	summary.add_theme_font_size_override("font_size", 8)
+	box.add_child(summary)
+	var pokemon_label := Label.new()
+	pokemon_label.text = "开局上场"
+	pokemon_label.add_theme_font_size_override("font_size", 9)
+	box.add_child(pokemon_label)
+	var pokemon_grid := GridContainer.new()
+	pokemon_grid.columns = 2
+	pokemon_grid.add_theme_constant_override("h_separation", 5)
+	pokemon_grid.add_theme_constant_override("v_separation", 2)
+	box.add_child(pokemon_grid)
+	for pokemon_id in POKEMON_IDS:
+		var current_id := str(pokemon_id)
+		var check := CheckBox.new()
+		check.text = _get_pokemon_prep_label(current_id)
+		check.button_pressed = current_id in _prep_selected_pokemon_ids
+		check.add_theme_font_size_override("font_size", 8)
+		check.toggled.connect(func(pressed: bool): _on_prep_pokemon_toggled(current_id, pressed))
+		pokemon_grid.add_child(check)
+		_prep_pokemon_buttons[current_id] = check
+	var extract_label := Label.new()
+	extract_label.text = "训练师默认提取"
+	extract_label.add_theme_font_size_override("font_size", 9)
+	box.add_child(extract_label)
+	_prep_extract_select = OptionButton.new()
+	_prep_extract_select.add_theme_font_size_override("font_size", 8)
+	box.add_child(_prep_extract_select)
+	_populate_prep_extract_options()
+	_prep_message_label = Label.new()
+	_prep_message_label.custom_minimum_size = Vector2(300, 40)
+	_prep_message_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_prep_message_label.add_theme_font_size_override("font_size", 8)
+	box.add_child(_prep_message_label)
+	_prep_start_button = Button.new()
+	_prep_start_button.text = "开始战斗"
+	_prep_start_button.custom_minimum_size = Vector2(110, 22)
+	_prep_start_button.add_theme_font_size_override("font_size", 9)
+	_prep_start_button.pressed.connect(_start_battle_from_prep)
+	box.add_child(_prep_start_button)
+	_update_prep_message()
+
+func _populate_prep_extract_options() -> void:
+	_prep_extract_ids.clear()
+	_prep_extract_select.clear()
+	var selected_index := 0
+	for pokemon_id in POKEMON_IDS:
+		var current_id := str(pokemon_id)
+		if not EXTRACT_DEFS.has(current_id):
+			continue
+		_prep_extract_ids.append(current_id)
+		_prep_extract_select.add_item(_get_extract_short_name(current_id) + " " + str(EXTRACT_DEFS[current_id]["reserve"]))
+		if current_id == _prep_extract_id:
+			selected_index = _prep_extract_ids.size() - 1
+	_prep_extract_select.select(selected_index)
+	if selected_index < _prep_extract_ids.size():
+		_prep_extract_id = _prep_extract_ids[selected_index]
+	_prep_extract_select.item_selected.connect(_on_prep_extract_selected)
+
+func _on_prep_pokemon_toggled(pokemon_id: String, pressed: bool) -> void:
+	if pressed:
+		if pokemon_id in _prep_selected_pokemon_ids:
+			_update_prep_message()
+			return
+		if _prep_selected_pokemon_ids.size() >= STARTING_POKEMON_LIMIT:
+			var button := _prep_pokemon_buttons[pokemon_id] as CheckBox
+			button.set_pressed_no_signal(false)
+			_show_prep_message("开局最多选择 %d 只宝可梦。" % STARTING_POKEMON_LIMIT)
+			return
+		_prep_selected_pokemon_ids.append(pokemon_id)
+	else:
+		_prep_selected_pokemon_ids.erase(pokemon_id)
+	_update_prep_message()
+
+func _on_prep_extract_selected(index: int) -> void:
+	if index >= 0 and index < _prep_extract_ids.size():
+		_prep_extract_id = _prep_extract_ids[index]
+	_update_prep_message()
+
+func _update_prep_message() -> void:
+	var valid := _is_prep_selection_valid()
+	if _prep_start_button != null:
+		_prep_start_button.disabled = not valid
+	if _prep_selected_pokemon_ids.size() != STARTING_POKEMON_LIMIT:
+		_show_prep_message("请选择 %d 只开局宝可梦。当前已选 %d 只。" % [STARTING_POKEMON_LIMIT, _prep_selected_pokemon_ids.size()])
+		return
+	if _prep_extract_id in _prep_selected_pokemon_ids:
+		_show_prep_message("默认提取需要选择未上场的后备宝可梦。")
+		return
+	var names: Array[String] = []
+	for pokemon_id in _prep_selected_pokemon_ids:
+		names.append(_get_pokemon_name(pokemon_id))
+	_show_prep_message("开局：训练师 + %s。默认提取：%s。" % [
+		_join_strings(names, "、"),
+		_get_pokemon_name(_prep_extract_id)
+	])
+
+func _show_prep_message(text: String) -> void:
+	if is_instance_valid(_prep_message_label):
+		_prep_message_label.text = text
+
+func _is_prep_selection_valid() -> bool:
+	return _prep_selected_pokemon_ids.size() == STARTING_POKEMON_LIMIT \
+		and not (_prep_extract_id in _prep_selected_pokemon_ids)
+
+func _start_battle_from_prep() -> void:
+	if not _is_prep_selection_valid():
+		_update_prep_message()
+		return
+	if is_instance_valid(_prep_panel):
+		_prep_panel.queue_free()
+	_spawn_units()
+	ctb_system.register_units(_all_units)
+	_update_sync_ui()
+	_add_battle_log(
+		"战斗开始。开局上场 %s，训练师默认提取 %s。" % [
+			_get_selected_pokemon_names_text(),
+			_get_pokemon_name(_prep_extract_id)
+		],
+		{
+			"event_type": "battle_start",
+			"starting_pokemon_ids": _prep_selected_pokemon_ids.duplicate(),
+			"default_extract_id": _prep_extract_id
+		}
+	)
+	ctb_system.start()
+
+func _get_selected_pokemon_names_text() -> String:
+	var names: Array[String] = []
+	for pokemon_id in _prep_selected_pokemon_ids:
+		names.append(_get_pokemon_name(pokemon_id))
+	return _join_strings(names, "、")
+
+func _get_pokemon_name(pokemon_id: String) -> String:
+	if SUMMON_DEFS.has(pokemon_id):
+		return str(SUMMON_DEFS[pokemon_id]["reserve"])
+	return pokemon_id
+
+func _get_pokemon_prep_label(pokemon_id: String) -> String:
+	match pokemon_id:
+		"fire":
+			return "火狐兽  输出"
+		"grass":
+			return "藤藤兽  控制"
+		"water":
+			return "水跃兽  治疗"
+		"electric":
+			return "电花鼠  高速"
+		"ice":
+			return "冰羽兽  压制"
+		_:
+			return pokemon_id
+
 func _spawn_units() -> void:
 	var fire_skill := _make_skill("火花", 26, 2, 100, Enums.ElementType.FIRE, 20)
 	var flame_line := _make_skill("火焰喷射", 42, 3, 120, Enums.ElementType.FIRE, 35, false, 1)
@@ -200,20 +377,37 @@ func _spawn_units() -> void:
 	var ground_skill := _make_skill("地刺", 24, 2, 100, Enums.ElementType.GROUND, 12)
 	var boss_skill := _make_skill("重踏", 10, 1, 100, Enums.ElementType.GRASS, 10)
 	
+	var fire_data := _make_unit_data("火狐兽", Enums.UnitType.PLAYER_POKEMON, 105, 18, 5, 58, 4, Color(0.95, 0.42, 0.18), Enums.ElementType.FIRE, [fire_skill, flame_line])
 	var grass_data := _make_unit_data("藤藤兽", Enums.UnitType.PLAYER_POKEMON, 95, 15, 5, 48, 4, Color(0.25, 0.75, 0.36), Enums.ElementType.GRASS, [vine_skill, snare_skill])
 	var water_data := _make_unit_data("水跃兽", Enums.UnitType.PLAYER_POKEMON, 88, 13, 4, 52, 4, Color(0.24, 0.58, 0.86), Enums.ElementType.WATER, [water_skill, mend_skill])
 	var spark_data := _make_unit_data("电花鼠", Enums.UnitType.PLAYER_POKEMON, 76, 16, 3, 68, 5, Color(0.85, 0.78, 0.34), Enums.ElementType.ELECTRIC, [spark_skill, quick_skill])
 	var ice_data := _make_unit_data("冰羽兽", Enums.UnitType.PLAYER_POKEMON, 82, 15, 4, 54, 4, Color(0.58, 0.82, 0.92), Enums.ElementType.ICE, [ice_skill, frost_skill])
+	_pokemon_roster.clear()
+	_pokemon_roster["fire"] = fire_data
+	_pokemon_roster["grass"] = grass_data
+	_pokemon_roster["water"] = water_data
+	_pokemon_roster["electric"] = spark_data
+	_pokemon_roster["ice"] = ice_data
 	_reserve_units.clear()
-	_reserve_units[grass_data.unit_name] = grass_data
-	_reserve_units[water_data.unit_name] = water_data
-	_reserve_units[spark_data.unit_name] = spark_data
-	_reserve_units[ice_data.unit_name] = ice_data
 	
 	var unit_scene := preload("res://units/Unit.tscn")
 	var trainer_data := _make_unit_data("训练师", Enums.UnitType.PLAYER, 90, 10, 4, 44, 4, Color(0.35, 0.85, 0.88), Enums.ElementType.NONE, [blade_skill])
 	_spawn_unit(unit_scene, trainer_data, Vector2i(2, 5))
-	_spawn_unit(unit_scene, _make_unit_data("火狐兽", Enums.UnitType.PLAYER_POKEMON, 105, 18, 5, 58, 4, Color(0.95, 0.42, 0.18), Enums.ElementType.FIRE, [fire_skill, flame_line]), Vector2i(3, 5))
+	var start_positions := [Vector2i(3, 5), Vector2i(2, 6)]
+	for i in range(_prep_selected_pokemon_ids.size()):
+		var pokemon_id := str(_prep_selected_pokemon_ids[i])
+		if not _pokemon_roster.has(pokemon_id):
+			continue
+		var unit_data: UnitData = _pokemon_roster[pokemon_id]
+		_spawn_unit(unit_scene, unit_data, start_positions[i])
+	for pokemon_id in POKEMON_IDS:
+		var current_id := str(pokemon_id)
+		if current_id in _prep_selected_pokemon_ids:
+			continue
+		if _pokemon_roster.has(current_id):
+			var reserve_data: UnitData = _pokemon_roster[current_id]
+			_reserve_units[reserve_data.unit_name] = reserve_data
+	_apply_trainer_extract(_prep_extract_id)
 	_spawn_unit(unit_scene, _make_unit_data("火牙小怪", Enums.UnitType.ENEMY, 72, 13, 3, 36, 4, Color(0.92, 0.34, 0.32), Enums.ElementType.FIRE, [fire_bite_skill]), Vector2i(10, 4))
 	_spawn_unit(unit_scene, _make_unit_data("叶咬小怪", Enums.UnitType.ENEMY, 72, 13, 3, 34, 4, Color(0.82, 0.36, 0.28), Enums.ElementType.GRASS, [grass_bite_skill]), Vector2i(10, 7))
 	_spawn_unit(unit_scene, _make_unit_data("水针小怪", Enums.UnitType.ENEMY, 62, 11, 2, 40, 3, Color(0.34, 0.48, 0.82), Enums.ElementType.WATER, [water_dart_skill]), Vector2i(13, 5))
@@ -1737,6 +1931,8 @@ func _get_card_short_name(card_id: String) -> String:
 
 func _get_extract_short_name(extract_id: String) -> String:
 	match extract_id:
+		"fire":
+			return "提火"
 		"grass":
 			return "提藤"
 		"water":

@@ -51,9 +51,10 @@ func _ready() -> void:
 	_btn_group_cards = _add_button("指令", "group_cards", func(): _set_trainer_group("cards"))
 	_btn_group_extract = _add_button("提取", "group_extract", func(): _set_trainer_group("extract"))
 	_btn_group_summon = _add_button("召唤", "group_summon", func(): _set_trainer_group("summon"))
-	_btn_summon = _add_button("召藤", "summon_grass", func(): emit_signal("summon_pressed", "grass"))
+	_btn_summon = _add_button("召火", "summon_fire", func(): emit_signal("summon_pressed", "fire"))
 	_btn_recall = _add_button("回收", "recall", func(): emit_signal("recall_pressed"))
-	_summon_buttons["grass"] = _btn_summon
+	_summon_buttons["fire"] = _btn_summon
+	_summon_buttons["grass"] = _add_button("召藤", "summon_grass", func(): emit_signal("summon_pressed", "grass"))
 	_summon_buttons["water"] = _add_button("召水", "summon_water", func(): emit_signal("summon_pressed", "water"))
 	_summon_buttons["electric"] = _add_button("召电", "summon_electric", func(): emit_signal("summon_pressed", "electric"))
 	_summon_buttons["ice"] = _add_button("召冰", "summon_ice", func(): emit_signal("summon_pressed", "ice"))
@@ -61,6 +62,7 @@ func _ready() -> void:
 	_card_buttons["shield"] = _add_button("护盾", "shield", func(): emit_signal("card_pressed", "shield"))
 	_card_buttons["power"] = _add_button("火力", "power", func(): emit_signal("card_pressed", "power"))
 	_card_buttons["capture"] = _add_button("封印", "capture", func(): emit_signal("card_pressed", "capture"))
+	_extract_buttons["fire"] = _add_button("提火", "extract_fire", func(): emit_signal("extract_pressed", "fire"))
 	_extract_buttons["grass"] = _add_button("提藤", "extract_grass", func(): emit_signal("extract_pressed", "grass"))
 	_extract_buttons["water"] = _add_button("提水", "extract_water", func(): emit_signal("extract_pressed", "water"))
 	_extract_buttons["electric"] = _add_button("提电", "extract_electric", func(): emit_signal("extract_pressed", "electric"))
