@@ -23,22 +23,26 @@ static func run(enemy: Unit, grid_manager: GridManager, all_units: Array[Unit]) 
 	and _distance(enemy.grid_pos, target.grid_pos) <= enemy.data.charge_range:
 		await Engine.get_main_loop().create_timer(0.3).timeout
 		_start_charge_attack(enemy, grid_manager, target)
-		logs.append(_make_log_record(
-			"%s 开始蓄力，预警 %s 周围，行动AP-%d。" % [
+		var charge_log_parts: Array[String] = [
+			"%s 开始蓄力，预警 %s 周围" % [
 				enemy.data.unit_name,
-				_format_grid_pos(target.grid_pos),
-				int(CHARGE_ACTION_AP_COST)
-			],
-			{
+				_format_grid_pos(target.grid_pos)
+			]
+		]
+		var charge_timing_text := _get_action_timing_text(CHARGE_ACTION_AP_COST)
+		if charge_timing_text != "":
+			charge_log_parts.append(charge_timing_text)
+		logs.append(_make_log_record(
+			_join_strings(charge_log_parts, "，") + "。",
+			_with_action_timing_metadata({
 				"event_type": "enemy_charge_start",
 				"actor": _unit_log_data(enemy),
 				"target": _unit_log_data(target),
 				"target_pos": _pos_log_data(target.grid_pos),
 				"charge_range": enemy.data.charge_range,
 				"charge_radius": enemy.data.charge_radius,
-				"charge_damage": enemy.data.charge_damage,
-				"action_ap_cost": CHARGE_ACTION_AP_COST
-			},
+				"charge_damage": enemy.data.charge_damage
+			}, CHARGE_ACTION_AP_COST),
 			[_unit_log_ref(enemy), _unit_log_ref(target)]
 		))
 		return logs
@@ -95,10 +99,12 @@ static func run(enemy: Unit, grid_manager: GridManager, all_units: Array[Unit]) 
 		log_parts.append("伤害 %d" % actual)
 		if target.current_hp <= 0:
 			log_parts.append(_get_defeat_text(target))
-		log_parts.append("行动AP-%d" % int(skill.ap_cost))
+		var enemy_skill_timing_text := _get_action_timing_text(skill.ap_cost)
+		if enemy_skill_timing_text != "":
+			log_parts.append(enemy_skill_timing_text)
 		logs.append(_make_log_record(
 			_join_strings(log_parts, "，") + "。",
-			{
+			_with_action_timing_metadata({
 				"event_type": "enemy_skill_damage",
 				"actor": _unit_log_data(enemy),
 				"target": _unit_log_data(target),
@@ -110,9 +116,8 @@ static func run(enemy: Unit, grid_manager: GridManager, all_units: Array[Unit]) 
 				"target_hp_after": target.current_hp,
 				"type_multiplier": TypeChartUtil.get_damage_multiplier(skill.element_type, target.data.get_element_types()),
 				"type_relation_text": relation,
-				"target_defeated": target.current_hp <= 0,
-				"action_ap_cost": skill.ap_cost
-			},
+				"target_defeated": target.current_hp <= 0
+			}, skill.ap_cost),
 			[_unit_log_ref(enemy), _unit_log_ref(target)]
 		))
 	elif logs.is_empty():
@@ -140,10 +145,12 @@ static func _resolve_charge_attack(enemy: Unit, grid_manager: GridManager, all_u
 			log_parts.append("伤害 %d" % actual)
 			if unit.current_hp <= 0:
 				log_parts.append(_get_defeat_text(unit))
-			log_parts.append("行动AP-%d" % int(CHARGE_ACTION_AP_COST))
+			var charge_hit_timing_text := _get_action_timing_text(CHARGE_ACTION_AP_COST)
+			if charge_hit_timing_text != "":
+				log_parts.append(charge_hit_timing_text)
 			logs.append(_make_log_record(
 				_join_strings(log_parts, "，") + "。",
-				{
+				_with_action_timing_metadata({
 					"event_type": "enemy_charge_damage",
 					"actor": _unit_log_data(enemy),
 					"target": _unit_log_data(unit),
@@ -153,19 +160,21 @@ static func _resolve_charge_attack(enemy: Unit, grid_manager: GridManager, all_u
 					"target_hp_after": unit.current_hp,
 					"type_multiplier": TypeChartUtil.get_damage_multiplier(enemy.data.element_type, unit.data.get_element_types()),
 					"type_relation_text": relation,
-					"target_defeated": unit.current_hp <= 0,
-					"action_ap_cost": CHARGE_ACTION_AP_COST
-				},
+					"target_defeated": unit.current_hp <= 0
+				}, CHARGE_ACTION_AP_COST),
 				[_unit_log_ref(enemy), _unit_log_ref(unit)]
 			))
 	if logs.is_empty():
+		var miss_parts: Array[String] = ["%s 蓄力攻击落空" % enemy.data.unit_name]
+		var charge_miss_timing_text := _get_action_timing_text(CHARGE_ACTION_AP_COST)
+		if charge_miss_timing_text != "":
+			miss_parts.append(charge_miss_timing_text)
 		logs.append(_make_log_record(
-			"%s 蓄力攻击落空，行动AP-%d。" % [enemy.data.unit_name, int(CHARGE_ACTION_AP_COST)],
-			{
+			_join_strings(miss_parts, "，") + "。",
+			_with_action_timing_metadata({
 				"event_type": "enemy_charge_miss",
-				"actor": _unit_log_data(enemy),
-				"action_ap_cost": CHARGE_ACTION_AP_COST
-			},
+				"actor": _unit_log_data(enemy)
+			}, CHARGE_ACTION_AP_COST),
 			[_unit_log_ref(enemy)]
 		))
 	enemy.clear_pending_charge_cells()
@@ -211,6 +220,33 @@ static func _format_grid_pos(pos: Vector2i) -> String:
 static func _get_element_relation_text(attack_type: int, target_types: Array[int]) -> String:
 	return TypeChartUtil.get_multiplier_text(TypeChartUtil.get_damage_multiplier(attack_type, target_types))
 
+static func _get_action_timing_percent(ap_cost: float) -> int:
+	return int(round(abs(ap_cost - Enums.MAX_AP) / Enums.MAX_AP * 100.0))
+
+static func _get_action_timing_direction(ap_cost: float) -> String:
+	var percent := _get_action_timing_percent(ap_cost)
+	if percent <= 0:
+		return "standard"
+	if ap_cost < Enums.MAX_AP:
+		return "advance"
+	return "delay"
+
+static func _get_action_timing_text(ap_cost: float) -> String:
+	var percent := _get_action_timing_percent(ap_cost)
+	if percent <= 0:
+		return ""
+	if ap_cost < Enums.MAX_AP:
+		return "下次行动提前%d%%" % percent
+	return "下次行动推后%d%%" % percent
+
+static func _with_action_timing_metadata(metadata: Dictionary, ap_cost: float) -> Dictionary:
+	var result := metadata.duplicate(true)
+	result["action_ap_cost"] = ap_cost
+	result["action_timing_direction"] = _get_action_timing_direction(ap_cost)
+	result["action_timing_percent"] = _get_action_timing_percent(ap_cost)
+	result["action_timing_text"] = _get_action_timing_text(ap_cost)
+	return result
+
 static func _get_defeat_text(unit: Unit) -> String:
 	if unit.data.unit_type == Enums.UnitType.PLAYER:
 		return "%s倒下，训练师指挥离线" % unit.data.unit_name
@@ -218,12 +254,11 @@ static func _get_defeat_text(unit: Unit) -> String:
 
 static func _make_wait_log(unit: Unit) -> Dictionary:
 	return _make_log_record(
-		"%s 待机，行动AP-50。" % unit.data.unit_name,
-		{
+		"%s 待机，%s。" % [unit.data.unit_name, _get_action_timing_text(50.0)],
+		_with_action_timing_metadata({
 			"event_type": "enemy_wait",
-			"actor": _unit_log_data(unit),
-			"action_ap_cost": 50.0
-		},
+			"actor": _unit_log_data(unit)
+		}, 50.0),
 		[_unit_log_ref(unit)]
 	)
 

@@ -11,6 +11,7 @@ const EXTRACT_COST := 20
 const BATTLE_LOG_LIMIT := 80
 const RESOURCE_EVENT_LIMIT := 120
 const NO_SKILL_AP_COST := 50.0
+const SYNC_NATURAL_CAP := 100
 const CARD_DEFS := {
 	"haste": {"name": "高速组件", "cost": 30, "cooldown": 2, "effect": "目标宝可梦下一次移动距离 +2，移动后消耗。"},
 	"shield": {"name": "小型护盾", "cost": 20, "cooldown": 2, "effect": "目标友方获得 30 护盾，护盾会抵消之后受到的伤害。"},
@@ -49,7 +50,6 @@ var _trainer_extract_id: String = ""
 var _captured_names: Array[String] = []
 
 var _sync_points: int = 70
-var _max_sync_points: int = 100
 var _selected_card_id: String = ""
 var _selected_summon_id: String = ""
 var _selected_skill_index: int = 0
@@ -182,23 +182,23 @@ func _build_mvp_ui() -> void:
 	log_box.add_child(_log_label)
 
 func _spawn_units() -> void:
-	var fire_skill := _make_skill("火花", 26, 2, 80, Enums.ElementType.FIRE, 20)
+	var fire_skill := _make_skill("火花", 26, 2, 100, Enums.ElementType.FIRE, 20)
 	var flame_line := _make_skill("火焰喷射", 42, 3, 120, Enums.ElementType.FIRE, 35, false, 1)
-	var vine_skill := _make_skill("藤鞭", 24, 3, 80, Enums.ElementType.GRASS, 18, false)
+	var vine_skill := _make_skill("藤鞭", 24, 3, 100, Enums.ElementType.GRASS, 18, false)
 	var snare_skill := _make_skill("缠绕", 14, 3, 100, Enums.ElementType.GRASS, 25, true)
-	var water_skill := _make_skill("水泡", 20, 3, 80, Enums.ElementType.WATER, 14)
+	var water_skill := _make_skill("水泡", 20, 3, 100, Enums.ElementType.WATER, 14)
 	var mend_skill := _make_skill("水愈", 22, 3, 100, Enums.ElementType.WATER, 0, false, 0, SkillData.EffectType.HEAL)
-	var spark_skill := _make_skill("电弧", 22, 3, 90, Enums.ElementType.ELECTRIC, 16)
+	var spark_skill := _make_skill("电弧", 22, 3, 100, Enums.ElementType.ELECTRIC, 16)
 	var quick_skill := _make_skill("疾闪", 12, 2, 80, Enums.ElementType.ELECTRIC, 8)
-	var ice_skill := _make_skill("冰针", 24, 3, 90, Enums.ElementType.ICE, 18)
-	var frost_skill := _make_skill("霜缚", 16, 3, 110, Enums.ElementType.ICE, 24, true)
-	var blade_skill := _make_skill("数据短刃", 14, 1, 80, Enums.ElementType.NONE, 8)
-	var fire_bite_skill := _make_skill("火牙", 22, 1, 80, Enums.ElementType.FIRE, 10)
-	var grass_bite_skill := _make_skill("叶咬", 22, 1, 80, Enums.ElementType.GRASS, 10)
-	var water_dart_skill := _make_skill("水针", 18, 3, 90, Enums.ElementType.WATER, 10)
-	var wind_skill := _make_skill("风刃", 20, 3, 90, Enums.ElementType.FLYING, 10)
+	var ice_skill := _make_skill("冰针", 24, 3, 100, Enums.ElementType.ICE, 18)
+	var frost_skill := _make_skill("霜缚", 16, 3, 120, Enums.ElementType.ICE, 24, true)
+	var blade_skill := _make_skill("数据短刃", 14, 1, 100, Enums.ElementType.NONE, 8)
+	var fire_bite_skill := _make_skill("火牙", 22, 1, 100, Enums.ElementType.FIRE, 10)
+	var grass_bite_skill := _make_skill("叶咬", 22, 1, 100, Enums.ElementType.GRASS, 10)
+	var water_dart_skill := _make_skill("水针", 18, 3, 100, Enums.ElementType.WATER, 10)
+	var wind_skill := _make_skill("风刃", 20, 3, 100, Enums.ElementType.FLYING, 10)
 	var ground_skill := _make_skill("地刺", 24, 2, 100, Enums.ElementType.GROUND, 12)
-	var boss_skill := _make_skill("重踏", 10, 1, 90, Enums.ElementType.GRASS, 10)
+	var boss_skill := _make_skill("重踏", 10, 1, 100, Enums.ElementType.GRASS, 10)
 	
 	var grass_data := _make_unit_data("藤藤兽", Enums.UnitType.PLAYER_POKEMON, 95, 15, 5, 48, 4, Color(0.25, 0.75, 0.36), Enums.ElementType.GRASS, [vine_skill, snare_skill])
 	var water_data := _make_unit_data("水跃兽", Enums.UnitType.PLAYER_POKEMON, 88, 13, 4, 52, 4, Color(0.24, 0.58, 0.86), Enums.ElementType.WATER, [water_skill, mend_skill])
@@ -323,7 +323,7 @@ func _on_unit_ready(unit: Unit) -> void:
 	_turn_has_support_action = false
 	_clear_extract_undo()
 	_tick_card_cooldowns()
-	_gain_sync(max(1, 6 - _active_pokemon_count() * 2), "自然回复")
+	_gain_sync(_get_natural_sync_gain_amount(), "自然回复", true)
 	_update_capture_marks()
 	if not is_instance_valid(_active_unit) or not _active_unit.is_alive():
 		if _battle_state != Enums.BattleState.BATTLE_OVER:
@@ -366,7 +366,7 @@ func _end_turn() -> void:
 			_get_action_ap_reason(),
 			_active_unit,
 			null,
-			{"action_ap_cost": _turn_ap_cost}
+			_with_action_timing_metadata({}, _turn_ap_cost)
 		)
 	_action_state = Enums.ActionState.IDLE
 	_selected_card_id = ""
@@ -424,32 +424,35 @@ func _on_skill_pressed(skill_index: int) -> void:
 	else:
 		grid_manager.highlight_cells(_attack_cells, GridManager.COLOR_ATTACK)
 	action_menu.hide_menu()
-	_show_tip("选择 %s 的目标。技能会消耗行动 AP，消耗越高下次行动越晚。" % skill.skill_name)
+	var timing_text := _get_action_timing_text(skill.ap_cost)
+	if timing_text != "":
+		_show_tip("选择 %s 的目标。首次点击预览，确认后%s。" % [skill.skill_name, timing_text])
+	else:
+		_show_tip("选择 %s 的目标。首次点击预览，确认后发动。" % skill.skill_name)
 
 func _on_wait_pressed() -> void:
 	if _active_unit != null and is_instance_valid(_active_unit):
 		_commit_pending_turn_logs()
+		var timing_text := _get_action_timing_text(_turn_ap_cost)
 		if _has_turn_activity():
 			var end_log_text := "%s 结束行动。" % _active_unit.data.unit_name
-			if not _active_unit.has_acted:
-				end_log_text = "%s 结束行动，行动AP-%d。" % [_active_unit.data.unit_name, int(_turn_ap_cost)]
+			if not _active_unit.has_acted and timing_text != "":
+				end_log_text = "%s 结束行动，%s。" % [_active_unit.data.unit_name, timing_text]
 			_add_battle_log(
 				end_log_text,
-				{
+				_with_action_timing_metadata({
 					"event_type": "end_action",
-					"actor": _unit_log_data(_active_unit),
-					"action_ap_cost": _turn_ap_cost
-				},
+					"actor": _unit_log_data(_active_unit)
+				}, _turn_ap_cost),
 				[_unit_log_ref(_active_unit)]
 			)
 		else:
 			_add_battle_log(
-				"%s 待机，行动AP-%d。" % [_active_unit.data.unit_name, int(_turn_ap_cost)],
-				{
+				"%s 待机，%s。" % [_active_unit.data.unit_name, timing_text],
+				_with_action_timing_metadata({
 					"event_type": "wait",
-					"actor": _unit_log_data(_active_unit),
-					"action_ap_cost": _turn_ap_cost
-				},
+					"actor": _unit_log_data(_active_unit)
+				}, _turn_ap_cost),
 				[_unit_log_ref(_active_unit)]
 			)
 	_end_turn()
@@ -724,7 +727,11 @@ func _return_to_skill_selection() -> void:
 		grid_manager.highlight_cells(_attack_cells, GridManager.COLOR_MOVE)
 	else:
 		grid_manager.highlight_cells(_attack_cells, GridManager.COLOR_ATTACK)
-	_show_tip("选择 %s 的目标。" % skill.skill_name)
+	var timing_text := _get_action_timing_text(skill.ap_cost)
+	if timing_text != "":
+		_show_tip("选择 %s 的目标。首次点击预览，确认后%s。" % [skill.skill_name, timing_text])
+	else:
+		_show_tip("选择 %s 的目标。首次点击预览，确认后发动。" % skill.skill_name)
 
 func _execute_skill_preview(attacker: Unit, skill: SkillData, target_pos: Vector2i, entries: Array[Dictionary]) -> void:
 	if skill.effect_type == SkillData.EffectType.HEAL:
@@ -735,15 +742,20 @@ func _execute_skill_preview(attacker: Unit, skill: SkillData, target_pos: Vector
 				continue
 			var actual_heal := heal_target.heal(entry["heal_amount"])
 			total_heal += actual_heal
-			_add_battle_log(
-				"%s 使用 %s -> %s，回复 %d，行动AP-%d。" % [
+			var log_parts: Array[String] = [
+				"%s 使用 %s -> %s" % [
 					attacker.data.unit_name,
 					skill.skill_name,
-					heal_target.data.unit_name,
-					actual_heal,
-					int(skill.ap_cost)
+					heal_target.data.unit_name
 				],
-				{
+				"回复 %d" % actual_heal
+			]
+			var heal_timing_text := _get_action_timing_text(skill.ap_cost)
+			if heal_timing_text != "":
+				log_parts.append(heal_timing_text)
+			_add_battle_log(
+				_join_strings(log_parts, "，") + "。",
+				_with_action_timing_metadata({
 					"event_type": "skill_heal",
 					"actor": _unit_log_data(attacker),
 					"target": _unit_log_data(heal_target),
@@ -751,9 +763,8 @@ func _execute_skill_preview(attacker: Unit, skill: SkillData, target_pos: Vector
 					"element_type": skill.element_type,
 					"target_pos": _pos_log_data(heal_target.grid_pos),
 					"heal_amount": actual_heal,
-					"target_hp_after": heal_target.current_hp,
-					"action_ap_cost": skill.ap_cost
-				},
+					"target_hp_after": heal_target.current_hp
+				}, skill.ap_cost),
 				[_unit_log_ref(attacker), _unit_log_ref(heal_target)]
 			)
 		_show_tip("%s 回复 %d 点 HP。" % [skill.skill_name, total_heal])
@@ -790,10 +801,12 @@ func _execute_skill_preview(attacker: Unit, skill: SkillData, target_pos: Vector
 				depleted_count += 1
 		if target.current_hp <= 0:
 			log_parts.append("%s倒下" % target.data.unit_name)
-		log_parts.append("行动AP-%d" % int(skill.ap_cost))
+		var damage_timing_text := _get_action_timing_text(skill.ap_cost)
+		if damage_timing_text != "":
+			log_parts.append(damage_timing_text)
 		_add_battle_log(
 			_join_strings(log_parts, "，") + "。",
-			{
+			_with_action_timing_metadata({
 				"event_type": "skill_damage",
 				"actor": _unit_log_data(attacker),
 				"target": _unit_log_data(target),
@@ -807,9 +820,8 @@ func _execute_skill_preview(attacker: Unit, skill: SkillData, target_pos: Vector
 				"type_relation_text": relation,
 				"stability_damage": stability_loss,
 				"target_stability_after": target.current_stability,
-				"target_defeated": target.current_hp <= 0,
-				"action_ap_cost": skill.ap_cost
-			},
+				"target_defeated": target.current_hp <= 0
+			}, skill.ap_cost),
 			[_unit_log_ref(attacker), _unit_log_ref(target)]
 		)
 	if attacker.power_boost_next_attack:
@@ -1092,12 +1104,25 @@ func _tick_card_cooldowns() -> void:
 	for card_id in _card_cooldowns.keys():
 		_card_cooldowns[card_id] = max(_card_cooldowns[card_id] - 1, 0)
 
-func _gain_sync(amount: int, reason: String = "") -> void:
+func _gain_sync(amount: int, reason: String = "", respects_natural_cap: bool = false) -> void:
 	var before := _sync_points
-	_sync_points = min(_sync_points + amount, _max_sync_points)
+	if respects_natural_cap and _sync_points >= SYNC_NATURAL_CAP:
+		_sync_points = before
+	elif respects_natural_cap:
+		_sync_points = min(_sync_points + amount, SYNC_NATURAL_CAP)
+	else:
+		_sync_points += amount
 	var gained := _sync_points - before
 	_update_sync_ui()
 	if gained > 0:
+		var event_metadata := {
+			"sync_gain": gained,
+			"sync_requested": amount,
+			"natural_cap": SYNC_NATURAL_CAP,
+			"natural_cap_applied": respects_natural_cap
+		}
+		if respects_natural_cap and gained < amount:
+			event_metadata["capped_by_natural_cap"] = true
 		_emit_resource_event(
 			"gain",
 			"sync",
@@ -1107,7 +1132,7 @@ func _gain_sync(amount: int, reason: String = "") -> void:
 			reason,
 			_active_unit,
 			null,
-			{"sync_gain": gained}
+			event_metadata
 		)
 		_show_sync_feedback(gained, reason)
 
@@ -1166,12 +1191,42 @@ func _get_action_ap_reason() -> String:
 		return "技能行动"
 	return "未使用技能"
 
+func _get_action_timing_percent(ap_cost: float) -> int:
+	return int(round(abs(ap_cost - Enums.MAX_AP) / Enums.MAX_AP * 100.0))
+
+func _get_action_timing_direction(ap_cost: float) -> String:
+	var percent := _get_action_timing_percent(ap_cost)
+	if percent <= 0:
+		return "standard"
+	if ap_cost < Enums.MAX_AP:
+		return "advance"
+	return "delay"
+
+func _get_action_timing_text(ap_cost: float) -> String:
+	var percent := _get_action_timing_percent(ap_cost)
+	if percent <= 0:
+		return ""
+	if ap_cost < Enums.MAX_AP:
+		return "下次行动提前%d%%" % percent
+	return "下次行动推后%d%%" % percent
+
+func _with_action_timing_metadata(metadata: Dictionary, ap_cost: float) -> Dictionary:
+	var result := metadata.duplicate(true)
+	result["action_ap_cost"] = ap_cost
+	result["action_timing_direction"] = _get_action_timing_direction(ap_cost)
+	result["action_timing_percent"] = _get_action_timing_percent(ap_cost)
+	result["action_timing_text"] = _get_action_timing_text(ap_cost)
+	return result
+
 func _active_pokemon_count() -> int:
 	var count := 0
 	for unit in _all_units:
 		if unit.is_ally() and unit.data.unit_type == Enums.UnitType.PLAYER_POKEMON:
 			count += 1
 	return count
+
+func _get_natural_sync_gain_amount() -> int:
+	return max(1, 6 - _active_pokemon_count() * 2)
 
 func _apply_log_ap_cost(log_record: Dictionary) -> void:
 	var metadata: Dictionary = log_record.get("metadata", {})
@@ -1192,13 +1247,16 @@ func _update_sync_ui() -> void:
 		if left > 0:
 			cooldown_text.append("%s:%d" % [CARD_DEFS[card_id]["name"], left])
 	var trainer_form := "离线" if _trainer_disabled else _get_trainer_form_summary()
-	_sync_label.text = "同步率 %d/%d\n形态 %s  宝%d 后备 %s\n获得: 自然+%d 训攻+8 宝攻+5 稳0+12 捕+18\n冷却 %s" % [
+	var natural_gain_text := "自然+%d" % _get_natural_sync_gain_amount()
+	if _sync_points >= SYNC_NATURAL_CAP:
+		natural_gain_text = "自然暂停"
+	_sync_label.text = "同步率 %d  自然上限%d\n形态 %s  宝%d 后备 %s\n获得: %s 训攻+8 宝攻+5 稳0+12 捕+18\n冷却 %s" % [
 		_sync_points,
-		_max_sync_points,
+		SYNC_NATURAL_CAP,
 		trainer_form,
 		_active_pokemon_count(),
 		_get_reserve_summary(),
-		max(1, 6 - _active_pokemon_count() * 2),
+		natural_gain_text,
 		_join_strings(cooldown_text, "、") if cooldown_text.size() > 0 else "无"
 	]
 
@@ -1537,8 +1595,11 @@ func _build_action_descriptions() -> Dictionary:
 	descriptions["move"] = "移动：最多 %d 格。移动后仍可使用技能；使用技能后不能再移动。" % _active_unit.get_current_move_range()
 	if _has_turn_activity():
 		descriptions["wait"] = "结束：提交本回合尚未展示的移动/提取日志，并结束当前单位行动。"
+		var timing_text := _get_action_timing_text(_turn_ap_cost)
+		if timing_text != "":
+			descriptions["wait"] += timing_text + "。"
 	else:
-		descriptions["wait"] = "待机：不移动、不使用技能，直接结束当前单位行动。"
+		descriptions["wait"] = "待机：不移动、不使用技能，直接结束当前单位行动；%s。" % _get_action_timing_text(NO_SKILL_AP_COST)
 	descriptions["group_cards"] = "指令卡：使用同步率强化、保护、回收或封印目标。"
 	descriptions["group_summon"] = "召唤：选择一只仍在后备中的宝可梦入场。召唤会让对应提取暂时不可用。"
 	descriptions["group_extract"] = "提取：切换训练师当前属性和技能，持续到下一次提取。未行动前可按 Esc 撤销。"
@@ -1566,12 +1627,16 @@ func _describe_skill(skill: SkillData) -> String:
 	var finish_text := "确认后自动结束回合"
 	if _is_trainer_turn():
 		finish_text = "确认后仍可继续指挥，需手动结束行动"
-	parts.append("%s：射程 %d，%s，行动 AP 消耗 %d。" % [
+	var summary := "%s：射程 %d，%s" % [
 		skill.skill_name,
 		skill.atk_range,
-		target_text,
-		int(skill.ap_cost)
-	])
+		target_text
+	]
+	var timing_text := _get_action_timing_text(skill.ap_cost)
+	if timing_text != "":
+		summary += "；" + timing_text
+	summary += "。"
+	parts.append(summary)
 	if skill.effect_type == SkillData.EffectType.HEAL:
 		parts.append("基础回复 %d + %s 攻击 %d；可选择自己或友方，%s。" % [skill.damage, _active_unit.data.unit_name, _active_unit.data.attack, finish_text])
 	elif skill.stability_damage > 0:
@@ -1591,11 +1656,11 @@ func _describe_card(card_id: String) -> String:
 		status = "冷却中，还需 %d 次行动" % left
 	elif _sync_points < card_def["cost"]:
 		status = "同步率不足"
-	return "%s：消耗 %d，同步率当前 %d/%d，冷却 %d。%s\n状态：%s" % [
+	return "%s：消耗 %d，同步率当前 %d，自然上限 %d，冷却 %d。%s\n状态：%s" % [
 		card_def["name"],
 		card_def["cost"],
 		_sync_points,
-		_max_sync_points,
+		SYNC_NATURAL_CAP,
 		card_def["cooldown"],
 		card_def["effect"],
 		status
@@ -1609,11 +1674,11 @@ func _describe_summon(summon_id: String) -> String:
 		status = "%s 不在后备" % reserve_name
 	elif _sync_points < SUMMON_COST:
 		status = "同步率不足"
-	return "%s：消耗 %d，同步率当前 %d/%d，在训练师 %d 格内召唤。%s\n状态：%s" % [
+	return "%s：消耗 %d，同步率当前 %d，自然上限 %d，在训练师 %d 格内召唤。%s\n状态：%s" % [
 		summon_def["name"],
 		SUMMON_COST,
 		_sync_points,
-		_max_sync_points,
+		SYNC_NATURAL_CAP,
 		CARD_RANGE,
 		summon_def["effect"],
 		status
@@ -1629,11 +1694,11 @@ func _describe_extract(extract_id: String) -> String:
 		status = "%s 不在后备" % reserve_name
 	elif _sync_points < EXTRACT_COST:
 		status = "同步率不足"
-	return "%s：消耗 %d，同步率当前 %d/%d。%s\n状态：%s" % [
+	return "%s：消耗 %d，同步率当前 %d，自然上限 %d。%s\n状态：%s" % [
 		extract_def["name"],
 		EXTRACT_COST,
 		_sync_points,
-		_max_sync_points,
+		SYNC_NATURAL_CAP,
 		extract_def["effect"],
 		status
 	]
@@ -1782,7 +1847,10 @@ func _build_action_preview(attacker: Unit, skill: SkillData, entries: Array[Dict
 			"ap": {
 				"before": attacker.current_ap,
 				"after": attacker.current_ap - skill.ap_cost,
-				"cost": skill.ap_cost
+				"cost": skill.ap_cost,
+				"timing_direction": _get_action_timing_direction(skill.ap_cost),
+				"timing_percent": _get_action_timing_percent(skill.ap_cost),
+				"timing_text": _get_action_timing_text(skill.ap_cost)
 			},
 			"sync": {
 				"before": _sync_points,
@@ -1827,7 +1895,9 @@ func _show_preview_panel(attacker: Unit, skill: SkillData, entries: Array[Dictio
 	var total_damage := 0
 	var lines: Array[String] = []
 	lines.append("%s -> %s" % [attacker.data.unit_name, skill.skill_name])
-	lines.append("行动 AP %.0f -> %.0f" % [attacker.current_ap, attacker.current_ap - skill.ap_cost])
+	var timing_text := _get_action_timing_text(skill.ap_cost)
+	if timing_text != "":
+		lines.append(timing_text)
 	if skill.area_radius > 0:
 		lines.append("范围命中 %d 个目标" % entries.size())
 	if skill.effect_type == SkillData.EffectType.HEAL:

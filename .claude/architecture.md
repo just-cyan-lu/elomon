@@ -12,8 +12,8 @@
 2. **CTB 推进** — `CTBSystem._process()` 每帧为各单位累加 AP。某单位 AP 达到 100 时发出 `unit_ready` 信号，`CTBSystem` 自身暂停，`Battle.gd` 的 `_on_unit_ready()` 响应。恢复跑条时如果已有单位满 AP，会立刻触发该单位行动，避免被卡牌加满 AP 的单位被跳过。
 3. **玩家回合** — `Battle.gd` 显示 `ActionMenu`。玩家选择移动 / 技能 / 指令卡 / 召唤 / 回收 / 待机或结束，驱动 `ActionState` 状态机。格子点击通过 `GridManager` 的 `cell_clicked` 信号路由。空闲时点击敌人会预览敌方移动范围和最远攻击威胁；选择移动时会同时预览移动后最远技能覆盖范围。移动后若尚未使用技能或支援操作，可按 `Esc` 撤回到回合开始位置。选择技能后第一次点目标只显示伤害预览，确认后才结算攻击。非训练师使用技能后自动结束；训练师使用技能后仍可继续刷卡、召唤、回收或手动结束行动，但不能再移动。
 4. **敌方回合** — `UnitAI.run()`（`RefCounted` 类上的静态方法）通过 `await` 延迟执行，便于玩家观察，并返回本次 AI 移动、攻击、蓄力或待机日志；`Battle.gd` 统一写入战斗日志后调用 `_end_turn()`。
-5. **结束回合** — `_end_turn()` 从当前单位 AP 中扣除本回合行动 AP 消耗，清除高亮和状态，调用 `CTBSystem.resume()` 重启计时。没有使用技能时默认扣 50 AP；使用技能时按 `SkillData.ap_cost` 扣除，强技能可扣 100/120 甚至更多，AP 允许被扣成负数，从而推迟下次行动。移动不消耗 AP。
-6. **资源事件与预览** — `Battle.gd` 通过 `resource_event_emitted(event)` 统一发出 AP / 同步率的 gain/spend 事件，事件包含 before/after、变化量、原因、actor/target 与 metadata。技能选中后会生成 `_current_action_preview` 并发出 `action_preview_updated(preview)`，其中包含 AP 预估、同步率预估和目标预估结果；当前 UI 只轻量显示，正式 UI 可复用这些结构化数据。
+5. **结束回合** — `_end_turn()` 从当前单位 AP 中扣除本回合行动条内部结算值，清除高亮和状态，调用 `CTBSystem.resume()` 重启计时。没有使用技能时默认扣 50 AP，并向玩家提示“下次行动提前50%”；大部分技能扣 100 AP 且不展示成本；少量快招/重招通过 `SkillData.ap_cost` 转译为“下次行动提前/推后 X%”。移动不消耗 AP。
+6. **资源事件与预览** — `Battle.gd` 通过 `resource_event_emitted(event)` 统一发出 AP / 同步率的 gain/spend 事件，事件包含 before/after、变化量、原因、actor/target 与 metadata。技能选中后会生成 `_current_action_preview` 并发出 `action_preview_updated(preview)`，其中包含 AP 预估、行动节奏百分比、同步率预估和目标预估结果；当前 UI 只轻量显示，正式 UI 可复用这些结构化数据。
 7. **战斗日志** — `Battle.gd` 在右下角动态创建滚动日志面板，只记录已经结算的移动、技能、指令卡、召唤、回收、封印、敌方行动和待机。预览、选中目标、Esc 取消等未落地操作不会写入正式日志；可撤销的移动和训练师提取会先进入 `_pending_turn_logs`，直到不可逆行动或结束行动时才提交到展示日志。日志内部保存结构化 record：展示文本、事件类型、actor/target 阵营、位置、HP/AP、伤害倍率、同步率消耗/获得等；单位稳定 id 暂以 TODO 字段占位，后续接入正式单位 id。
 
 ## MVP 战斗系统
@@ -22,7 +22,7 @@
 - 敌方包含火属性近战、草属性近战、水属性远程、飞属性高速远程、地属性慢速近战和草属性可捕捉厚血大怪。
 - 训练师回合可消耗同步率使用固定指令卡：高速组件、小型护盾、火力插件、空白封印卡；也可召唤或回收藤藤兽。高速组件提供宝可梦下一次移动 +2，而不是补 AP。
 - 后备能力提取与召唤由 `Battle.gd` 的 `_reserve_units`、`SUMMON_DEFS`、`EXTRACT_DEFS` 和 `_trainer_extract_id` 管理。召唤和提取都需要对应宝可梦仍在后备中；召唤会让它离开后备，提取不消耗本体。提取后训练师会切换属性，并把技能列表替换为对应宝可梦技能，直到下一次提取。
-- 同步率显示在战斗 UI 上，会随行动自然回复，也会因训练师/宝可梦攻击、稳定度归零、捕捉而增加；HUD 常驻显示主要获得规则，每次实际获得同步率时，HUD 附近会显示短暂的 `+同步率` 反馈。
+- 同步率显示在战斗 UI 上，会随行动自然回复，也会因训练师/宝可梦攻击、稳定度归零、捕捉而增加；自然回复最多补到 100，主动收益可以超过 100。HUD 常驻显示主要获得规则，每次实际获得同步率时，HUD 附近会显示短暂的 `+同步率` 反馈。
 - 可捕捉厚血大怪拥有稳定度。克制或控制技能削减稳定度；稳定度为 0 且低血时可被训练师封印。稳定度归零不会让敌人跳过行动，也不设置捕捉倒计时。
 - 厚血大怪有低频蓄力攻击。蓄力时会在地图上显示预警格，下一次大怪行动时对预警格内的己方单位造成较低伤害。
 - 训练师倒下不会直接失败，而是进入指挥离线状态：不能再刷卡、召唤、回收或封印，只能继续操作已在场的宝可梦。己方全部单位倒下才失败。
@@ -46,7 +46,7 @@
 - `UnitAI.gd`（`class_name UnitAI`，继承 `RefCounted`）— 无状态静态 AI。`run()` 优先反击上一次攻击自己的我方单位；没有可用仇恨目标时，寻找最近我方单位，移动靠近后若在攻击范围内则发动攻击。厚血大怪每隔数次行动可能进入蓄力状态，下一次行动结算预警格伤害。AI 不直接操作 UI，而是返回行动日志文本，由 `Battle.gd` 统一展示。
 
 ## 技能（`skills/`）
-- `SkillData.gd`（`class_name SkillData`，继承 `Resource`）— 字段：`skill_name`、`damage`、`atk_range`、行动 AP 消耗 `ap_cost`、元素属性、稳定度伤害、是否控制技能、`area_radius`、`effect_type`。MVP 中技能结算后按 `ap_cost` 扣除行动 AP；小技能约 80，标准技能约 100，强技能/AOE/强控制约 110-120。`effect_type=DAMAGE` 表示攻击敌人，`HEAL` 表示治疗友方。`area_radius=0` 表示单体，`>0` 表示目标格周围菱形范围。旧实例位于 `skills/tres/`，MVP 样板战当前由 `Battle.gd` 动态生成。
+- `SkillData.gd`（`class_name SkillData`，继承 `Resource`）— 字段：`skill_name`、`damage`、`atk_range`、行动条内部结算值 `ap_cost`、元素属性、稳定度伤害、是否控制技能、`area_radius`、`effect_type`。MVP 中大部分技能为标准行动 `ap_cost=100`，不显示成本提示；少量快招/重招才显示“下次行动提前/推后 X%”。`effect_type=DAMAGE` 表示攻击敌人，`HEAL` 表示治疗友方。`area_radius=0` 表示单体，`>0` 表示目标格周围菱形范围。旧实例位于 `skills/tres/`，MVP 样板战当前由 `Battle.gd` 动态生成。
 - 伤害公式：先计算 `max(skill.damage + unit.attack - target.defense, 1)`，再通过 `TypeChart` 按目标属性列表逐项连乘。克制为 2 倍，抵抗为 0.5 倍；未来双属性若同时被克制会得到 4 倍。稳定度使用同一属性倍率的克制部分，再叠加控制加成。
 - 玩家单位可通过行动菜单使用技能 1 或技能 2；敌方 AI 仍使用单位技能列表中的第一个技能。
 
