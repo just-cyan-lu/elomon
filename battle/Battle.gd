@@ -72,6 +72,7 @@ var _prep_extract_id: String = "water"
 var _enemy_threat_button: Button
 var _preview_panel: PanelContainer
 var _preview_label: Label
+var _briefing_panel: PanelContainer
 var _log_panel: PanelContainer
 var _log_label: RichTextLabel
 var _card_cooldowns := {}
@@ -330,6 +331,56 @@ func _start_battle_from_prep() -> void:
 			"default_extract_id": _prep_extract_id
 		}
 	)
+	_build_battle_briefing_panel()
+
+func _build_battle_briefing_panel() -> void:
+	if is_instance_valid(_briefing_panel):
+		_briefing_panel.queue_free()
+	_briefing_panel = PanelContainer.new()
+	_briefing_panel.position = Vector2(126, 46)
+	_briefing_panel.size = Vector2(388, 254)
+	$UI.add_child(_briefing_panel)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 6)
+	_briefing_panel.add_child(box)
+	var title := Label.new()
+	title.text = "第一场战斗"
+	title.add_theme_font_size_override("font_size", 14)
+	box.add_child(title)
+	var objective := Label.new()
+	objective.text = "目标：击败全部敌人，或封印铁甲巨兽后清掉剩余敌人。"
+	objective.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	objective.add_theme_font_size_override("font_size", 9)
+	box.add_child(objective)
+	var rules := Label.new()
+	rules.text = _get_battle_briefing_text()
+	rules.custom_minimum_size = Vector2(360, 130)
+	rules.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	rules.add_theme_font_size_override("font_size", 8)
+	box.add_child(rules)
+	var start_button := Button.new()
+	start_button.text = "开始行动"
+	start_button.custom_minimum_size = Vector2(112, 22)
+	start_button.add_theme_font_size_override("font_size", 9)
+	start_button.pressed.connect(_start_battle_after_briefing)
+	box.add_child(start_button)
+
+func _get_battle_briefing_text() -> String:
+	var lines: Array[String] = [
+		"关键规则",
+		"1. 属性克制造成 2 倍伤害；确认攻击前会显示实际伤害。",
+		"2. 封印只看 HP：越低越容易，红色血条时 100%。",
+		"3. 同步率用于指令、提取、召唤；每个训练师回合最多 1 次。",
+		"4. 默认形态：%s；对应后备会被同步占用。" % _get_extract_display_name(_prep_extract_id, true),
+		"5. 可随时点“敌方范围”查看敌方全体威胁。"
+	]
+	return _join_strings(lines, "\n")
+
+func _start_battle_after_briefing() -> void:
+	if is_instance_valid(_briefing_panel):
+		_briefing_panel.queue_free()
+	_briefing_panel = null
+	_show_tip("目标：击败敌人，或把铁甲巨兽压到红血后封印。")
 	ctb_system.start()
 
 func _get_selected_pokemon_names_text() -> String:

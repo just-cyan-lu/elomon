@@ -10,12 +10,13 @@
 
 1. **战前准备** — `_build_prep_panel()` 在战斗开始前让玩家选择 2 只开局宝可梦和训练师默认提取形态；默认是火狐兽 + 藤藤兽上场，训练师预提取水跃兽。
 2. **生成单位** — MVP 版本在 `_spawn_units()` 中动态创建 `UnitData` / `SkillData`，按战前准备生成训练师、2 只开局宝可梦、后备名单和敌方单位，并将单位注册到 `GridManager`、`CTBSystem` 和 `CTBBar`。旧 `.tres` 数据仍保留，但当前样板战斗不依赖它们。
-3. **CTB 推进** — `CTBSystem._process()` 每帧为各单位累加 AP。某单位 AP 达到 100 时发出 `unit_ready` 信号，`CTBSystem` 自身暂停，`Battle.gd` 的 `_on_unit_ready()` 响应。恢复跑条时如果已有单位满 AP，会立刻触发该单位行动，避免被卡牌加满 AP 的单位被跳过。
-4. **玩家回合** — `Battle.gd` 显示 `ActionMenu`。玩家选择移动 / 技能 / 指令卡 / 召唤 / 回收 / 待机或结束，驱动 `ActionState` 状态机。格子点击通过 `GridManager` 的 `cell_clicked` 信号路由。空闲时点击敌人会预览敌方移动范围和最远攻击威胁；选择移动时会同时预览移动后最远技能覆盖范围。移动后若尚未使用技能或支援操作，可按 `Esc` 撤回到回合开始位置。选择技能后第一次点目标只显示伤害预览，确认后才结算攻击。非训练师使用技能后自动结束；训练师使用技能后仍可继续刷卡、召唤、回收或手动结束行动，但不能再移动。
-5. **敌方回合** — `UnitAI.run()`（`RefCounted` 类上的静态方法）通过 `await` 延迟执行，便于玩家观察，并返回本次 AI 移动、攻击、蓄力或待机日志；`Battle.gd` 统一写入战斗日志后调用 `_end_turn()`。
-6. **结束回合** — `_end_turn()` 从当前单位 AP 中扣除本回合行动条内部结算值，清除高亮和状态，调用 `CTBSystem.resume()` 重启计时。没有使用技能时默认扣 50 AP，并向玩家提示“下次行动提前50%”；大部分技能扣 100 AP 且不展示成本；少量快招/重招通过 `SkillData.ap_cost` 转译为“下次行动提前/推后 X%”。移动不消耗 AP。
-7. **资源事件与预览** — `Battle.gd` 通过 `resource_event_emitted(event)` 统一发出 AP / 同步率的 gain/spend 事件，事件包含 before/after、变化量、原因、actor/target 与 metadata。技能选中后会生成 `_current_action_preview` 并发出 `action_preview_updated(preview)`，其中包含 AP 预估、行动节奏百分比、同步率预估和目标预估结果；当前 UI 只轻量显示，正式 UI 可复用这些结构化数据。
-8. **战斗日志** — `Battle.gd` 在右下角动态创建滚动日志面板，只记录已经结算的移动、技能、指令卡、召唤、回收、封印、敌方行动和待机。预览、选中目标、Esc 取消等未落地操作不会写入正式日志；可撤销的移动和训练师提取会先进入 `_pending_turn_logs`，直到不可逆行动或结束行动时才提交到展示日志。日志内部保存结构化 record：展示文本、事件类型、actor/target 阵营、位置、HP/AP、伤害倍率、同步率消耗/获得等；单位稳定 id 暂以 TODO 字段占位，后续接入正式单位 id。
+3. **开战提示** — `_build_battle_briefing_panel()` 在单位生成后、CTB 开始前显示一次“第一场战斗”提示面板，说明胜利目标、属性克制、封印、同步率和敌方范围按钮；玩家点“开始行动”后才调用 `CTBSystem.start()`。
+4. **CTB 推进** — `CTBSystem._process()` 每帧为各单位累加 AP。某单位 AP 达到 100 时发出 `unit_ready` 信号，`CTBSystem` 自身暂停，`Battle.gd` 的 `_on_unit_ready()` 响应。恢复跑条时如果已有单位满 AP，会立刻触发该单位行动，避免被卡牌加满 AP 的单位被跳过。
+5. **玩家回合** — `Battle.gd` 显示 `ActionMenu`。玩家选择移动 / 技能 / 指令卡 / 召唤 / 回收 / 待机或结束，驱动 `ActionState` 状态机。格子点击通过 `GridManager` 的 `cell_clicked` 信号路由。空闲时点击敌人会预览敌方移动范围和最远攻击威胁；选择移动时会同时预览移动后最远技能覆盖范围。移动后若尚未使用技能或支援操作，可按 `Esc` 撤回到回合开始位置。选择技能后第一次点目标只显示伤害预览，确认后才结算攻击。非训练师使用技能后自动结束；训练师使用技能后仍可继续刷卡、召唤、回收或手动结束行动，但不能再移动。
+6. **敌方回合** — `UnitAI.run()`（`RefCounted` 类上的静态方法）通过 `await` 延迟执行，便于玩家观察，并返回本次 AI 移动、攻击、蓄力或待机日志；`Battle.gd` 统一写入战斗日志后调用 `_end_turn()`。
+7. **结束回合** — `_end_turn()` 从当前单位 AP 中扣除本回合行动条内部结算值，清除高亮和状态，调用 `CTBSystem.resume()` 重启计时。没有使用技能时默认扣 50 AP，并向玩家提示“下次行动提前50%”；大部分技能扣 100 AP 且不展示成本；少量快招/重招通过 `SkillData.ap_cost` 转译为“下次行动提前/推后 X%”。移动不消耗 AP。
+8. **资源事件与预览** — `Battle.gd` 通过 `resource_event_emitted(event)` 统一发出 AP / 同步率的 gain/spend 事件，事件包含 before/after、变化量、原因、actor/target 与 metadata。技能选中后会生成 `_current_action_preview` 并发出 `action_preview_updated(preview)`，其中包含 AP 预估、行动节奏百分比、同步率预估和目标预估结果；当前 UI 只轻量显示，正式 UI 可复用这些结构化数据。
+9. **战斗日志** — `Battle.gd` 在右下角动态创建滚动日志面板，只记录已经结算的移动、技能、指令卡、召唤、回收、封印、敌方行动和待机。预览、选中目标、Esc 取消等未落地操作不会写入正式日志；可撤销的移动和训练师提取会先进入 `_pending_turn_logs`，直到不可逆行动或结束行动时才提交到展示日志。日志内部保存结构化 record：展示文本、事件类型、actor/target 阵营、位置、HP/AP、伤害倍率、同步率消耗/获得等；单位稳定 id 暂以 TODO 字段占位，后续接入正式单位 id。
 
 ## MVP 战斗系统
 当前分支实现了 `.claude/mvp_design.md` 的第一版样板战：
