@@ -18,11 +18,11 @@ const CARD_DEFS := {
 	"haste": {"name": "高速组件", "cost": 30, "cooldown": 2, "effect": "目标宝可梦下一次移动距离 +2，移动后消耗。"},
 	"shield": {"name": "小型护盾", "cost": 20, "cooldown": 2, "effect": "目标友方获得 30 护盾，护盾会抵消之后受到的伤害。"},
 	"power": {"name": "火力插件", "cost": 25, "cooldown": 2, "effect": "目标宝可梦下一次攻击伤害提高 50%，攻击后消耗。"},
-	"capture": {"name": "空白封印卡", "cost": 40, "cooldown": 3, "effect": "封印稳定度归零且 HP 低于 40% 的野生宝可梦。"},
+	"capture": {"name": "空白封印卡", "cost": 40, "cooldown": 3, "effect": "封印野生宝可梦。成功率随目标 HP 降低提高，红色血条时 100%。"},
 }
 const SUMMON_DEFS := {
 	"fire": {"name": "召唤火狐兽", "reserve": "火狐兽", "short": "召火", "effect": "火属性输出型后备，擅长压制草/冰属性和打爆发。"},
-	"grass": {"name": "召唤藤藤兽", "reserve": "藤藤兽", "short": "召藤", "effect": "草属性控制型后备，擅长削稳定度和牵制水/地属性。"},
+	"grass": {"name": "召唤藤藤兽", "reserve": "藤藤兽", "short": "召藤", "effect": "草属性控制型后备，擅长牵制水/地属性和限制走位。"},
 	"water": {"name": "召唤水跃兽", "reserve": "水跃兽", "short": "召水", "effect": "水属性支援型后备，能治疗友方并压制火/地属性。"},
 	"electric": {"name": "召唤电花鼠", "reserve": "电花鼠", "short": "召电", "effect": "雷属性高速后备，擅长处理中远程水/飞属性目标。"},
 	"ice": {"name": "召唤冰羽兽", "reserve": "冰羽兽", "short": "召冰", "effect": "冰属性压制型后备，擅长克制草/飞/地属性目标。"},
@@ -436,7 +436,7 @@ func _spawn_units() -> void:
 	_spawn_unit(unit_scene, _make_unit_data("水针小怪", Enums.UnitType.ENEMY, 62, 11, 2, 40, 3, Color(0.34, 0.48, 0.82), Enums.ElementType.WATER, [water_dart_skill]), Vector2i(13, 5))
 	_spawn_unit(unit_scene, _make_unit_data("飞羽小怪", Enums.UnitType.ENEMY, 58, 10, 2, 52, 5, Color(0.64, 0.66, 0.86), Enums.ElementType.FLYING, [wind_skill]), Vector2i(12, 2))
 	_spawn_unit(unit_scene, _make_unit_data("地壳小怪", Enums.UnitType.ENEMY, 88, 12, 5, 28, 3, Color(0.62, 0.50, 0.34), Enums.ElementType.GROUND, [ground_skill]), Vector2i(12, 9))
-	_spawn_unit(unit_scene, _make_unit_data("铁甲巨兽", Enums.UnitType.WILD_POKEMON, 280, 8, 8, 24, 2, Color(0.25, 0.65, 0.25), Enums.ElementType.GRASS, [boss_skill], 110, true, 3, 18, 5, 1), Vector2i(14, 9))
+	_spawn_unit(unit_scene, _make_unit_data("铁甲巨兽", Enums.UnitType.WILD_POKEMON, 280, 8, 8, 24, 2, Color(0.25, 0.65, 0.25), Enums.ElementType.GRASS, [boss_skill], 0, true, 3, 18, 5, 1), Vector2i(14, 9))
 
 func _spawn_unit(unit_scene: PackedScene, unit_data: UnitData, spawn_pos: Vector2i) -> Unit:
 	var unit: Unit = unit_scene.instantiate()
@@ -761,7 +761,10 @@ func _on_card_pressed(card_id: String) -> void:
 	_card_cells = _cells_in_range(_trainer.grid_pos, CARD_RANGE)
 	grid_manager.highlight_cells(_card_cells, GridManager.COLOR_ATTACK)
 	action_menu.hide_menu()
-	_show_tip("选择 %s 的目标。" % CARD_DEFS[card_id]["name"])
+	if card_id == "capture":
+		_show_tip("选择野生宝可梦封印。HP 越低成功率越高，红色血条时 100%。")
+	else:
+		_show_tip("选择 %s 的目标。" % CARD_DEFS[card_id]["name"])
 
 func _on_extract_pressed(extract_id: String) -> void:
 	if not _is_trainer_turn():
@@ -1005,13 +1008,10 @@ func _execute_skill_preview(attacker: Unit, skill: SkillData, target_pos: Vector
 		return
 
 	var total_damage := 0
-	var depleted_count := 0
 	for entry in entries:
 		var target: Unit = entry["target"]
 		if not is_instance_valid(target) or not target.is_alive():
 			continue
-		var was_stability_depleted := target.stability_depleted
-		var stability_before := target.current_stability
 		var actual := target.take_damage(entry["raw_damage"], attacker, skill.element_type)
 		total_damage += actual
 		var log_parts: Array[String] = [
@@ -1025,14 +1025,6 @@ func _execute_skill_preview(attacker: Unit, skill: SkillData, target_pos: Vector
 		if relation != "":
 			log_parts.append(relation)
 		log_parts.append("伤害 %d" % actual)
-		var stability_loss := 0
-		if target.is_alive() and target.is_enemy() and target.data.max_stability > 0:
-			target.damage_stability(entry["stability_damage"])
-			stability_loss = stability_before - target.current_stability
-			if stability_loss > 0:
-				log_parts.append("稳定-%d" % stability_loss)
-			if not was_stability_depleted and target.stability_depleted:
-				depleted_count += 1
 		if target.current_hp <= 0:
 			log_parts.append("%s倒下" % target.data.unit_name)
 		var damage_timing_text := _get_action_timing_text(skill.ap_cost)
@@ -1052,8 +1044,6 @@ func _execute_skill_preview(attacker: Unit, skill: SkillData, target_pos: Vector
 				"target_hp_after": target.current_hp,
 				"type_multiplier": TypeChartUtil.get_damage_multiplier(skill.element_type, target.data.get_element_types()),
 				"type_relation_text": relation,
-				"stability_damage": stability_loss,
-				"target_stability_after": target.current_stability,
 				"target_defeated": target.current_hp <= 0
 			}, skill.ap_cost),
 			[_unit_log_ref(attacker), _unit_log_ref(target)]
@@ -1065,8 +1055,6 @@ func _execute_skill_preview(attacker: Unit, skill: SkillData, target_pos: Vector
 			_gain_sync(8, "训练师攻击")
 		else:
 			_gain_sync(5, "宝可梦攻击")
-	for i in range(depleted_count):
-		_gain_sync(12, "稳定归零")
 	_show_tip("%s 命中 %d 个目标，共造成 %d 伤害。" % [skill.skill_name, entries.size(), total_damage])
 	_update_capture_marks()
 
@@ -1122,21 +1110,42 @@ func _resolve_card(grid_pos: Vector2i) -> void:
 				)
 				_finish_card("%s 的下一次攻击被强化。" % target.data.unit_name)
 		"capture":
-			if target != null and target.is_capturable():
+			if target != null and target.can_attempt_capture():
+				var capture_chance := target.get_capture_chance()
+				var capture_roll := randf()
 				_pay_card("capture")
 				_add_battle_log(
-					"%s 使用指令 %s -> %s，消耗同步率 %d。" % [
+					"%s 使用指令 %s -> %s，消耗同步率 %d，成功率 %s。" % [
 						_trainer.data.unit_name,
 						CARD_DEFS["capture"]["name"],
 						target.data.unit_name,
-						CARD_DEFS["capture"]["cost"]
+						CARD_DEFS["capture"]["cost"],
+						_format_percent(capture_chance)
 					],
-					_build_card_log_metadata("capture", target, {"capture_ready": target.capture_ready}),
+					_build_card_log_metadata("capture", target, {
+						"capture_chance": capture_chance,
+						"capture_roll": capture_roll,
+						"guaranteed": capture_chance >= 1.0
+					}),
 					[_unit_log_ref(_trainer), _unit_log_ref(target)]
 				)
-				_capture_unit(target)
+				if capture_roll <= capture_chance:
+					_capture_unit(target, capture_chance)
+				else:
+					_add_battle_log(
+						"%s 封印失败，%s 仍可行动。" % [_trainer.data.unit_name, target.data.unit_name],
+						{
+							"event_type": "capture_failed",
+							"actor": _unit_log_data(_trainer),
+							"target": _unit_log_data(target),
+							"capture_chance": capture_chance,
+							"capture_roll": capture_roll
+						},
+						[_unit_log_ref(_trainer), _unit_log_ref(target)]
+					)
+					_finish_card("封印失败（成功率 %s）。" % _format_percent(capture_chance))
 			else:
-				_show_tip("目标必须稳定度归零、低血，且是野生宝可梦。")
+				_show_tip("只能对野生宝可梦使用封印。目标 HP 越低成功率越高，红色血条时 100%。")
 
 func _finish_card(message: String) -> void:
 	_action_state = Enums.ActionState.IDLE
@@ -1220,7 +1229,7 @@ func _summon_reserve(grid_pos: Vector2i) -> void:
 	_show_action_menu()
 	_show_tip("%s 入场。同步率回复会因为多一只宝可梦而变慢。" % reserve_name)
 
-func _capture_unit(unit: Unit) -> void:
+func _capture_unit(unit: Unit, capture_chance: float = 1.0) -> void:
 	_captured_names.append(unit.data.unit_name)
 	var captured_log_data := _unit_log_data(unit)
 	var captured_log_ref := _unit_log_ref(unit)
@@ -1232,6 +1241,7 @@ func _capture_unit(unit: Unit) -> void:
 			"event_type": "capture_success",
 			"actor": _unit_log_data(_trainer),
 			"target": captured_log_data,
+			"capture_chance": capture_chance,
 			"sync_gain": 18
 		},
 		[_unit_log_ref(_trainer), captured_log_ref]
@@ -1484,7 +1494,7 @@ func _update_sync_ui() -> void:
 	var natural_gain_text := "自然+%d" % _get_natural_sync_gain_amount()
 	if _sync_points >= SYNC_NATURAL_CAP:
 		natural_gain_text = "自然暂停"
-	_sync_label.text = "同步率 %d  自然上限%d\n形态 %s  宝%d 后备 %s\n获得: %s 训攻+8 宝攻+5 稳0+12 捕+18\n冷却 %s" % [
+	_sync_label.text = "同步率 %d  自然上限%d\n形态 %s  宝%d 后备 %s\n获得: %s 训攻+8 宝攻+5 捕+18\n冷却 %s" % [
 		_sync_points,
 		SYNC_NATURAL_CAP,
 		trainer_form,
@@ -1678,6 +1688,9 @@ func _join_strings(parts: Array, delimiter: String) -> String:
 
 func _format_grid_pos(pos: Vector2i) -> String:
 	return "(%d,%d)" % [pos.x, pos.y]
+
+func _format_percent(value: float) -> String:
+	return "%d%%" % int(round(value * 100.0))
 
 func _get_reserve_summary() -> String:
 	if _reserve_units.is_empty():
@@ -1877,14 +1890,9 @@ func _describe_skill(skill: SkillData) -> String:
 	summary += "。"
 	parts.append(summary)
 	if skill.effect_type == SkillData.EffectType.HEAL:
-		parts.append("基础回复 %d + %s 攻击 %d；可选择自己或友方，%s。" % [skill.damage, _active_unit.data.unit_name, _active_unit.data.attack, finish_text])
-	elif skill.stability_damage > 0:
-		parts.append("基础伤害 %d + %s 攻击 %d；%s。" % [skill.damage, _active_unit.data.unit_name, _active_unit.data.attack, finish_text])
-		parts.append("稳定度伤害 %d；属性克制时翻倍，控制技能会额外增加。" % skill.stability_damage)
+		parts.append("技能回复 %d；可选择自己或友方，%s。" % [skill.damage, finish_text])
 	else:
-		parts.append("基础伤害 %d + %s 攻击 %d；%s。" % [skill.damage, _active_unit.data.unit_name, _active_unit.data.attack, finish_text])
-	if skill.is_control:
-		parts.append("控制技能。")
+		parts.append("技能伤害 %d；实际伤害以确认前预览为准，%s。" % [skill.damage, finish_text])
 	return _join_strings(parts, "\n")
 
 func _describe_card(card_id: String) -> String:
@@ -1895,6 +1903,16 @@ func _describe_card(card_id: String) -> String:
 		status = "冷却中，还需 %d 次行动" % left
 	elif _sync_points < card_def["cost"]:
 		status = "同步率不足"
+	if card_id == "capture":
+		return "%s：消耗 %d，同步率当前 %d，自然上限 %d，冷却 %d。%s\n规则：HP 越低成功率越高，红色血条时 100%。\n状态：%s" % [
+			card_def["name"],
+			card_def["cost"],
+			_sync_points,
+			SYNC_NATURAL_CAP,
+			card_def["cooldown"],
+			card_def["effect"],
+			status
+		]
 	return "%s：消耗 %d，同步率当前 %d，自然上限 %d，冷却 %d。%s\n状态：%s" % [
 		card_def["name"],
 		card_def["cost"],
@@ -2050,15 +2068,10 @@ func _build_skill_preview(attacker: Unit, skill: SkillData, target_pos: Vector2i
 			continue
 		var raw_damage := _get_raw_skill_damage(attacker, skill)
 		var hp_damage := _get_expected_hp_damage(target, raw_damage, skill.element_type)
-		var stability_damage := 0
-		if target.data.max_stability > 0 and not target.stability_depleted:
-			if target.current_hp - hp_damage > 0:
-				stability_damage = _get_expected_stability_damage(skill, target)
 		result.append({
 			"target": target,
 			"raw_damage": raw_damage,
-			"hp_damage": hp_damage,
-			"stability_damage": stability_damage
+			"hp_damage": hp_damage
 		})
 	return result
 
@@ -2081,7 +2094,6 @@ func _build_action_preview(attacker: Unit, skill: SkillData, entries: Array[Dict
 		else:
 			target_preview["hp_damage"] = int(entry["hp_damage"])
 			target_preview["hp_after"] = max(target.current_hp - int(entry["hp_damage"]), 0)
-			target_preview["stability_damage"] = int(entry["stability_damage"])
 			target_preview["type_multiplier"] = TypeChartUtil.get_damage_multiplier(skill.element_type, target.data.get_element_types())
 		targets.append(target_preview)
 	return {
@@ -2121,15 +2133,6 @@ func _get_expected_hp_damage(target: Unit, raw_damage: int, attack_type: int) ->
 	damage_after_defense = TypeChartUtil.apply_damage_multiplier(damage_after_defense, attack_type, target.data.get_element_types())
 	return max(damage_after_defense - target.shield, 0)
 
-func _get_expected_stability_damage(skill: SkillData, target: Unit) -> int:
-	var stability_damage := skill.stability_damage
-	var multiplier: float = TypeChartUtil.get_damage_multiplier(skill.element_type, target.data.get_element_types())
-	if multiplier > 1.0:
-		stability_damage *= int(multiplier)
-	if skill.is_control:
-		stability_damage += 8
-	return stability_damage
-
 func _show_preview_area(skill: SkillData, target_pos: Vector2i) -> void:
 	var range_color := GridManager.COLOR_MOVE if skill.effect_type == SkillData.EffectType.HEAL else GridManager.COLOR_ATTACK
 	grid_manager.highlight_cells(_attack_cells, range_color)
@@ -2165,7 +2168,6 @@ func _show_preview_panel(attacker: Unit, skill: SkillData, entries: Array[Dictio
 	for entry in entries:
 		var target: Unit = entry["target"]
 		var hp_damage: int = entry["hp_damage"]
-		var stability_damage: int = entry["stability_damage"]
 		total_damage += hp_damage
 		var hp_after: int = max(target.current_hp - hp_damage, 0)
 		var line := "%s HP %d>%d  伤%d" % [
@@ -2174,8 +2176,6 @@ func _show_preview_panel(attacker: Unit, skill: SkillData, entries: Array[Dictio
 			hp_after,
 			hp_damage
 		]
-		if stability_damage > 0:
-			line += " 稳-%d" % min(stability_damage, target.current_stability)
 		var relation := _get_element_relation_text(skill.element_type, target.data.get_element_types())
 		if relation != "":
 			line += " " + relation
@@ -2200,8 +2200,6 @@ func _show_preview_markers(entries: Array[Dictionary]) -> void:
 		else:
 			marker_parts.append("-" + str(entry["hp_damage"]))
 			marker.modulate = Color(1.0, 0.82, 0.32, 1.0)
-		if entry.has("stability_damage") and entry["stability_damage"] > 0:
-			marker_parts.append("稳-" + str(min(int(entry["stability_damage"]), target.current_stability)))
 		marker.text = _join_strings(marker_parts, "\n")
 		marker.position = target.position + Vector2(-18, -42)
 		marker.size = Vector2(48, 24)

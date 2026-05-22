@@ -167,9 +167,20 @@ func damage_stability(amount: int) -> void:
 	emit_signal("status_changed", self)
 
 func is_capturable() -> bool:
+	return can_attempt_capture() and get_capture_chance() >= 1.0
+
+func can_attempt_capture() -> bool:
 	return data.unit_type == Enums.UnitType.WILD_POKEMON \
-		and stability_depleted \
-		and current_hp <= int(data.max_hp * 0.4)
+		and is_alive()
+
+func get_capture_chance() -> float:
+	if not can_attempt_capture() or data.max_hp <= 0:
+		return 0.0
+	var hp_ratio := float(current_hp) / float(data.max_hp)
+	if hp_ratio <= 0.3:
+		return 1.0
+	var low_hp_progress := (1.0 - hp_ratio) / 0.7
+	return clamp(0.15 + low_hp_progress * 0.75, 0.15, 0.9)
 
 func set_capture_ready(value: bool) -> void:
 	capture_ready = value
@@ -198,9 +209,6 @@ func _update_label() -> void:
 	var type_text: String = TypeChartUtil.get_type_names(data.get_element_types())
 	if type_text != "无":
 		parts.append("属" + type_text)
-	if data.max_stability > 0:
-		var stability_text := "0" if stability_depleted else str(current_stability)
-		parts.append("稳" + stability_text)
 	if shield > 0:
 		parts.append("盾" + str(shield))
 	if capture_ready:
