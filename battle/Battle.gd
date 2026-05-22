@@ -73,6 +73,7 @@ var _enemy_threat_button: Button
 var _preview_panel: PanelContainer
 var _preview_label: Label
 var _briefing_panel: PanelContainer
+var _result_panel: PanelContainer
 var _log_panel: PanelContainer
 var _log_label: RichTextLabel
 var _card_cooldowns := {}
@@ -84,6 +85,7 @@ var _pending_turn_logs: Array[Dictionary] = []
 var _resource_events: Array[Dictionary] = []
 var _current_action_preview := {}
 var _log_sequence: int = 0
+var _defeated_enemy_count: int = 0
 var _enemy_threat_visible: bool = false
 var _turn_start_pos: Vector2i = Vector2i(-1, -1)
 var _turn_start_snapshot := {}
@@ -605,6 +607,9 @@ func _on_unit_ready(unit: Unit) -> void:
 		for log_record in enemy_logs:
 			_add_battle_log_record(log_record)
 			_apply_log_ap_cost(log_record)
+		_check_battle_over()
+		if _battle_state == Enums.BattleState.BATTLE_OVER:
+			return
 		_end_turn()
 	else:
 		_battle_state = Enums.BattleState.PLAYER_TURN
@@ -1111,6 +1116,7 @@ func _execute_skill_preview(attacker: Unit, skill: SkillData, target_pos: Vector
 			_gain_sync(5, "宝可梦攻击")
 	_show_tip("%s 命中 %d 个目标，共造成 %d 伤害。" % [skill.skill_name, entries.size(), total_damage])
 	_update_capture_marks()
+	_check_battle_over()
 
 func _resolve_card(grid_pos: Vector2i) -> void:
 	if _selected_card_id == "recall":
@@ -2333,9 +2339,10 @@ func _on_unit_died(unit: Unit) -> void:
 		_remove_unit(unit, false)
 		_show_tip("训练师倒下：对局继续，但无法再刷卡、召唤、回收或封印。")
 		_update_sync_ui()
-		_check_battle_over()
 		return
-	_remove_unit(unit)
+	if unit.is_enemy():
+		_defeated_enemy_count += 1
+	_remove_unit(unit, false)
 
 func _check_battle_over() -> void:
 	if _battle_state == Enums.BattleState.BATTLE_OVER:
@@ -2344,16 +2351,79 @@ func _check_battle_over() -> void:
 	var has_enemy := _all_units.any(func(u): return u.is_enemy() and u.is_alive())
 	
 	if not has_ally:
-		_end_battle("失败：全体倒下")
+		_end_battle(false)
 	elif not has_enemy:
-		var suffix := ""
-		if _captured_names.size() > 0:
-			suffix = "\n捕捉：" + _join_strings(_captured_names, "、")
-		_end_battle("胜利！" + suffix)
+		_end_battle(true)
 
-func _end_battle(text: String) -> void:
+func _end_battle(victory: bool) -> void:
 	_battle_state = Enums.BattleState.BATTLE_OVER
 	ctb_system.stop()
 	action_menu.hide_menu()
-	result_label.text = text
-	result_label.visible = true
+	_clear_skill_preview()
+	grid_manager.clear_highlights()
+	_enemy_threat_visible = false
+	_update_enemy_threat_overlay()
+	result_label.visible = false
+	_show_result_panel(victory)
+
+func _show_result_panel(victory: bool) -> void:
+	if is_instance_valid(_result_panel):
+		_result_panel.queue_free()
+	_result_panel = PanelContainer.new()
+	_result_panel.position = Vector2(142, 54)
+	_result_panel.size = Vector2(356, 244)
+	$UI.add_child(_result_panel)
+	var box := VBoxContainer.new()
+	box.add_theme_constant_override("separation", 6)
+	_result_panel.add_child(box)
+	var title := Label.new()
+	title.text = "胜利" if victory else "失败"
+	title.add_theme_font_size_override("font_size", 16)
+	title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	box.add_child(title)
+	var summary := Label.new()
+	summary.text = _get_battle_result_summary(victory)
+	summary.custom_minimum_size = Vector2(328, 154)
+	summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	summary.add_theme_font_size_override("font_size", 9)
+	box.add_child(summary)
+	var note := Label.new()
+	note.text = "行动日志保留在右下角，可用来回看关键操作。"
+	note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	note.add_theme_font_size_override("font_size", 8)
+	box.add_child(note)
+
+func _get_battle_result_summary(victory: bool) -> String:
+	var captured_text := "无"
+	if _captured_names.size() > 0:
+		captured_text = _join_strings(_captured_names, "、")
+	var trainer_text := "倒下" if _trainer_disabled else "存活"
+	var goal_text := "目标达成：敌方已清空。"
+	if not victory:
+		goal_text = "目标失败：己方全体倒下。"
+	var lines: Array[String] = [
+		goal_text,
+		"封印：%s" % captured_text,
+		"击败敌人：%d" % _defeated_enemy_count,
+		"同步率操作：%d" % _count_sync_action_logs(),
+		"训练师：%s" % trainer_text,
+		"剩余同步率：%d" % _sync_points
+	]
+	return _join_strings(lines, "\n")
+
+func _count_sync_action_logs() -> int:
+	var count := 0
+	var sync_event_types := {
+		"card": true,
+		"extract": true,
+		"summon": true,
+		"recall": true
+	}
+	for record in _battle_logs:
+		if not record.has("metadata"):
+			continue
+		var metadata: Dictionary = record["metadata"]
+		var event_type := str(metadata.get("event_type", ""))
+		if sync_event_types.has(event_type):
+			count += 1
+	return count
