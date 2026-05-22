@@ -722,6 +722,9 @@ func _on_summon_pressed(summon_id: String) -> void:
 		return
 	var summon_def = SUMMON_DEFS[summon_id]
 	var reserve_name := str(summon_def["reserve"])
+	if _is_summon_locked_by_extract(summon_id):
+		_show_tip("%s 正在提供训练师当前同步形态，切换到别的提取形态后才能召唤。" % reserve_name)
+		return
 	if not _reserve_units.has(reserve_name):
 		_show_tip("%s 不在后备中，不能召唤。" % reserve_name)
 		return
@@ -1187,6 +1190,13 @@ func _summon_reserve(grid_pos: Vector2i) -> void:
 	if not SUMMON_DEFS.has(_selected_summon_id):
 		return
 	var reserve_name := str(SUMMON_DEFS[_selected_summon_id]["reserve"])
+	if _is_summon_locked_by_extract(_selected_summon_id):
+		_show_tip("%s 正在提供训练师当前同步形态，不能召唤。" % reserve_name)
+		_selected_summon_id = ""
+		_action_state = Enums.ActionState.IDLE
+		grid_manager.clear_highlights()
+		_show_action_menu()
+		return
 	if not _reserve_units.has(reserve_name):
 		_show_tip("%s 不在后备中，不能召唤。" % reserve_name)
 		return
@@ -1692,12 +1702,23 @@ func _format_grid_pos(pos: Vector2i) -> String:
 func _format_percent(value: float) -> String:
 	return "%d%%" % int(round(value * 100.0))
 
+func _is_summon_locked_by_extract(summon_id: String) -> bool:
+	if _trainer_extract_id == "" \
+	or not SUMMON_DEFS.has(summon_id) \
+	or not EXTRACT_DEFS.has(_trainer_extract_id):
+		return false
+	return str(SUMMON_DEFS[summon_id]["reserve"]) == str(EXTRACT_DEFS[_trainer_extract_id]["reserve"])
+
 func _get_reserve_summary() -> String:
 	if _reserve_units.is_empty():
 		return "无"
 	var names: Array[String] = []
 	for reserve_name in _reserve_units.keys():
-		names.append(str(reserve_name))
+		var display_name := str(reserve_name)
+		if EXTRACT_DEFS.has(_trainer_extract_id) \
+		and display_name == str(EXTRACT_DEFS[_trainer_extract_id]["reserve"]):
+			display_name += "(同步)"
+		names.append(display_name)
 	names.sort()
 	return _join_strings(names, "、")
 
@@ -1819,7 +1840,9 @@ func _build_summon_labels() -> Dictionary:
 	for summon_id in SUMMON_DEFS:
 		var label := str(SUMMON_DEFS[summon_id]["short"])
 		var reserve_name := str(SUMMON_DEFS[summon_id]["reserve"])
-		if not _reserve_units.has(reserve_name):
+		if _is_summon_locked_by_extract(summon_id):
+			labels[summon_id] = label + "同"
+		elif not _reserve_units.has(reserve_name):
 			labels[summon_id] = label + "离"
 		else:
 			labels[summon_id] = "%s%d" % [label, SUMMON_COST]
@@ -1853,7 +1876,7 @@ func _build_action_descriptions() -> Dictionary:
 	else:
 		descriptions["group_sync"] = "同步率：本回合可在指令、提取、召唤、回收或封印中选择 1 次。移动和技能不占用这次机会。"
 	descriptions["group_cards"] = "指令：消耗同步率强化、保护、回收或封印目标。本回合与提取、召唤共享 1 次同步率操作。"
-	descriptions["group_summon"] = "召唤：选择一只仍在后备中的宝可梦入场。召唤会让对应提取暂时不可用，并占用本回合同步率操作。"
+	descriptions["group_summon"] = "召唤：选择一只仍在后备、且没有提供当前同步形态的宝可梦入场。召唤会让对应提取暂时不可用，并占用本回合同步率操作。"
 	descriptions["group_extract"] = "提取：切换训练师当前属性和技能，持续到下一次提取；占用本回合同步率操作。未行动前可按 Esc 撤销。"
 	for i in range(2):
 		var key := "skill%d" % (i + 1)
@@ -1904,7 +1927,7 @@ func _describe_card(card_id: String) -> String:
 	elif _sync_points < card_def["cost"]:
 		status = "同步率不足"
 	if card_id == "capture":
-		return "%s：消耗 %d，同步率当前 %d，自然上限 %d，冷却 %d。%s\n规则：HP 越低成功率越高，红色血条时 100%。\n状态：%s" % [
+		return "%s：消耗 %d，同步率当前 %d，自然上限 %d，冷却 %d。%s\n规则：HP 越低成功率越高，红色血条时 100%%。\n状态：%s" % [
 			card_def["name"],
 			card_def["cost"],
 			_sync_points,
@@ -1927,7 +1950,9 @@ func _describe_summon(summon_id: String) -> String:
 	var summon_def = SUMMON_DEFS[summon_id]
 	var reserve_name := str(summon_def["reserve"])
 	var status := "可用"
-	if not _reserve_units.has(reserve_name):
+	if _is_summon_locked_by_extract(summon_id):
+		status = "%s 正在提供当前同步形态" % reserve_name
+	elif not _reserve_units.has(reserve_name):
 		status = "%s 不在后备" % reserve_name
 	elif _sync_points < SUMMON_COST:
 		status = "同步率不足"
