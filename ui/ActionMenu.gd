@@ -37,6 +37,7 @@ var _is_trainer_context := false
 
 func _ready() -> void:
 	_panel = $PanelContainer
+	_style_panel(_panel)
 	_button_list = $PanelContainer/VBoxContainer
 	_setup_scroll_container()
 	_button_list.add_theme_constant_override("separation", 1)
@@ -99,6 +100,21 @@ func _setup_scroll_container() -> void:
 	_panel.add_child(_scroll_container)
 	_scroll_container.add_child(_button_list)
 	_button_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+func _style_panel(panel: PanelContainer) -> void:
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.055, 0.065, 0.085, 0.88)
+	style.border_color = Color(0.40, 0.48, 0.62, 0.55)
+	style.set_border_width_all(1)
+	style.corner_radius_top_left = 4
+	style.corner_radius_top_right = 4
+	style.corner_radius_bottom_left = 4
+	style.corner_radius_bottom_right = 4
+	style.content_margin_left = 4
+	style.content_margin_right = 4
+	style.content_margin_top = 4
+	style.content_margin_bottom = 4
+	panel.add_theme_stylebox_override("panel", style)
 
 func _bind_hover(button: Button, key: String) -> void:
 	button.mouse_entered.connect(func():

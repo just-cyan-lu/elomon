@@ -60,8 +60,11 @@ var _sync_points: int = 100
 var _selected_card_id: String = ""
 var _selected_summon_id: String = ""
 var _selected_skill_index: int = 0
+var _sync_panel: PanelContainer
 var _sync_label: Label
+var _sync_feedback_panel: PanelContainer
 var _sync_feedback_label: Label
+var _tip_panel: PanelContainer
 var _tip_label: Label
 var _prep_panel: PanelContainer
 var _prep_message_label: Label
@@ -117,28 +120,57 @@ func _unhandled_input(event: InputEvent) -> void:
 
 # ── 初始化 ──────────────────────────────────────────────────────
 
+func _make_ui_panel(pos: Vector2, panel_size: Vector2, fill_color: Color = Color(0.055, 0.065, 0.085, 0.82), border_color: Color = Color(0.32, 0.42, 0.56, 0.48)) -> PanelContainer:
+	var panel := PanelContainer.new()
+	panel.position = pos
+	panel.size = panel_size
+	_style_ui_panel(panel, fill_color, border_color)
+	return panel
+
+func _style_ui_panel(panel: PanelContainer, fill_color: Color = Color(0.055, 0.065, 0.085, 0.82), border_color: Color = Color(0.32, 0.42, 0.56, 0.48)) -> void:
+	var style := StyleBoxFlat.new()
+	style.bg_color = fill_color
+	style.border_color = border_color
+	style.set_border_width_all(1)
+	style.corner_radius_top_left = 4
+	style.corner_radius_top_right = 4
+	style.corner_radius_bottom_left = 4
+	style.corner_radius_bottom_right = 4
+	style.content_margin_left = 4
+	style.content_margin_right = 4
+	style.content_margin_top = 4
+	style.content_margin_bottom = 4
+	panel.add_theme_stylebox_override("panel", style)
+
 func _build_mvp_ui() -> void:
+	_sync_panel = _make_ui_panel(Vector2(214, 2), Vector2(276, 84))
+	$UI.add_child(_sync_panel)
 	_sync_label = Label.new()
-	_sync_label.position = Vector2(218, 4)
-	_sync_label.size = Vector2(260, 82)
+	_sync_label.position = Vector2(6, 4)
+	_sync_label.size = Vector2(264, 76)
 	_sync_label.add_theme_font_size_override("font_size", 8)
 	_sync_label.add_theme_color_override("font_color", Color(0.55, 0.82, 1.0, 1.0))
-	$UI.add_child(_sync_label)
+	_sync_panel.add_child(_sync_label)
 
+	_sync_feedback_panel = _make_ui_panel(Vector2(490, 4), Vector2(144, 24), Color(0.07, 0.12, 0.14, 0.72), Color(0.25, 0.55, 0.62, 0.55))
+	_sync_feedback_panel.visible = false
+	$UI.add_child(_sync_feedback_panel)
 	_sync_feedback_label = Label.new()
-	_sync_feedback_label.position = Vector2(492, 6)
-	_sync_feedback_label.size = Vector2(140, 24)
+	_sync_feedback_label.position = Vector2(4, 2)
+	_sync_feedback_label.size = Vector2(136, 20)
 	_sync_feedback_label.add_theme_font_size_override("font_size", 11)
 	_sync_feedback_label.add_theme_color_override("font_color", Color(0.55, 0.9, 1.0, 1.0))
 	_sync_feedback_label.visible = false
-	$UI.add_child(_sync_feedback_label)
+	_sync_feedback_panel.add_child(_sync_feedback_label)
 
+	_tip_panel = _make_ui_panel(Vector2(216, 86), Vector2(392, 68), Color(0.08, 0.08, 0.10, 0.78), Color(0.45, 0.50, 0.62, 0.44))
+	$UI.add_child(_tip_panel)
 	_tip_label = Label.new()
-	_tip_label.position = Vector2(220, 88)
-	_tip_label.size = Vector2(380, 64)
+	_tip_label.position = Vector2(6, 4)
+	_tip_label.size = Vector2(380, 60)
 	_tip_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_tip_label.add_theme_font_size_override("font_size", 8)
-	$UI.add_child(_tip_label)
+	_tip_panel.add_child(_tip_label)
 
 	_enemy_threat_button = Button.new()
 	_enemy_threat_button.position = Vector2(548, 34)
@@ -149,9 +181,10 @@ func _build_mvp_ui() -> void:
 	$UI.add_child(_enemy_threat_button)
 
 	_preview_panel = PanelContainer.new()
-	_preview_panel.position = Vector2(418, 126)
+	_preview_panel.position = Vector2(418, 156)
 	_preview_panel.size = Vector2(216, 170)
 	_preview_panel.visible = false
+	_style_ui_panel(_preview_panel)
 	$UI.add_child(_preview_panel)
 	var preview_box := VBoxContainer.new()
 	preview_box.add_theme_constant_override("separation", 3)
@@ -180,6 +213,7 @@ func _build_mvp_ui() -> void:
 	_log_panel = PanelContainer.new()
 	_log_panel.position = Vector2(430, 220)
 	_log_panel.size = Vector2(204, 134)
+	_style_ui_panel(_log_panel, Color(0.055, 0.06, 0.075, 0.86), Color(0.35, 0.40, 0.48, 0.45))
 	$UI.add_child(_log_panel)
 	var log_box := VBoxContainer.new()
 	log_box.add_theme_constant_override("separation", 2)
@@ -201,6 +235,7 @@ func _build_prep_panel() -> void:
 	_prep_panel = PanelContainer.new()
 	_prep_panel.position = Vector2(154, 42)
 	_prep_panel.size = Vector2(332, 274)
+	_style_ui_panel(_prep_panel)
 	$UI.add_child(_prep_panel)
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 5)
@@ -344,6 +379,7 @@ func _build_battle_briefing_panel() -> void:
 	_briefing_panel = PanelContainer.new()
 	_briefing_panel.position = Vector2(126, 46)
 	_briefing_panel.size = Vector2(388, 254)
+	_style_ui_panel(_briefing_panel)
 	$UI.add_child(_briefing_panel)
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 6)
@@ -1630,7 +1666,7 @@ func _update_sync_ui() -> void:
 	]
 
 func _show_sync_feedback(amount: int, reason: String) -> void:
-	if not is_instance_valid(_sync_feedback_label):
+	if not is_instance_valid(_sync_feedback_panel) or not is_instance_valid(_sync_feedback_label):
 		return
 	var reason_text := ""
 	if reason != "":
@@ -1641,13 +1677,18 @@ func _show_sync_feedback(amount: int, reason: String) -> void:
 		_sync_feedback_label.add_theme_color_override("font_color", Color(0.55, 0.9, 1.0, 1.0))
 	else:
 		_sync_feedback_label.add_theme_color_override("font_color", Color(1.0, 0.78, 0.5, 1.0))
-	_sync_feedback_label.modulate.a = 1.0
-	_sync_feedback_label.position = Vector2(492, 6)
+	_sync_feedback_panel.modulate.a = 1.0
+	_sync_feedback_panel.position = Vector2(490, 4)
+	_sync_feedback_panel.visible = true
+	_sync_feedback_label.position = Vector2(4, 2)
 	_sync_feedback_label.visible = true
 	var tween := create_tween()
-	tween.tween_property(_sync_feedback_label, "position:y", -8.0, 0.55)
-	tween.parallel().tween_property(_sync_feedback_label, "modulate:a", 0.0, 0.55)
-	tween.tween_callback(func(): _sync_feedback_label.visible = false)
+	tween.tween_property(_sync_feedback_panel, "position:y", -8.0, 0.55)
+	tween.parallel().tween_property(_sync_feedback_panel, "modulate:a", 0.0, 0.55)
+	tween.tween_callback(func():
+		_sync_feedback_panel.visible = false
+		_sync_feedback_label.visible = false
+	)
 
 func _add_battle_log(text: String, metadata: Dictionary = {}, unit_refs: Array[Dictionary] = []) -> int:
 	return _add_battle_log_record(_make_battle_log_record(text, metadata, unit_refs))
@@ -2549,6 +2590,7 @@ func _show_result_panel(victory: bool) -> void:
 	_result_panel = PanelContainer.new()
 	_result_panel.position = Vector2(142, 54)
 	_result_panel.size = Vector2(356, 244)
+	_style_ui_panel(_result_panel)
 	$UI.add_child(_result_panel)
 	var box := VBoxContainer.new()
 	box.add_theme_constant_override("separation", 6)

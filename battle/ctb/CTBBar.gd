@@ -16,12 +16,31 @@ var _bar_list: VBoxContainer
 var _axis_list: HBoxContainer
 var _toggle_button: Button
 var _axis_labels: Array[Label] = []
+var _background_panel: PanelContainer
 
 func _ready() -> void:
+	_build_background_panel()
 	_bar_list = $VBoxContainer
 	_build_view_toggle()
 	_build_axis_view()
 	_apply_view_mode()
+
+func _build_background_panel() -> void:
+	_background_panel = PanelContainer.new()
+	_background_panel.position = Vector2(-4, -4)
+	_background_panel.size = Vector2(176, 150)
+	_background_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.05, 0.055, 0.07, 0.80)
+	style.border_color = Color(0.30, 0.36, 0.48, 0.45)
+	style.set_border_width_all(1)
+	style.corner_radius_top_left = 4
+	style.corner_radius_top_right = 4
+	style.corner_radius_bottom_left = 4
+	style.corner_radius_bottom_right = 4
+	_background_panel.add_theme_stylebox_override("panel", style)
+	add_child(_background_panel)
+	move_child(_background_panel, 0)
 
 func _build_view_toggle() -> void:
 	_toggle_button = Button.new()

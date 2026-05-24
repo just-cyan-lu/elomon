@@ -12,7 +12,7 @@ static func run(enemy: Unit, grid_manager: GridManager, all_units: Array[Unit]) 
 		logs.append_array(_resolve_charge_attack(enemy, grid_manager, all_units))
 		return logs
 
-	# 1. 优先反击上一次攻击自己的单位，否则找最近的我方单位
+	# 1. 评分选目标：保留反击倾向，同时考虑属性克制、血量和距离。
 	var target := _find_target(enemy, all_units)
 	if target == null:
 		return logs
@@ -21,6 +21,7 @@ static func run(enemy: Unit, grid_manager: GridManager, all_units: Array[Unit]) 
 	if enemy.data.can_charge_attack \
 	and enemy.ai_turn_count % enemy.data.charge_interval == 0 \
 	and _distance(enemy.grid_pos, target.grid_pos) <= enemy.data.charge_range:
+		target = _find_charge_target(enemy, all_units, target)
 		await Engine.get_main_loop().create_timer(0.3).timeout
 		_start_charge_attack(enemy, grid_manager, target)
 		var charge_log_parts: Array[String] = [
@@ -50,9 +51,12 @@ static func run(enemy: Unit, grid_manager: GridManager, all_units: Array[Unit]) 
 	# 稍作延迟，模拟"思考"，同时让玩家看清楚发生了什么
 	await Engine.get_main_loop().create_timer(0.4).timeout
 	
-	# 2. 计算移动范围，找最靠近目标的格子
+	# 2. 计算移动范围。近战逼近，远程尽量保持射程内距离。
+	var skill: SkillData = null
+	if not enemy.data.skills.is_empty():
+		skill = enemy.data.skills[0]
 	var move_cells: Array[Vector2i] = grid_manager.get_move_range(enemy.grid_pos, enemy.data.move_range)
-	var best_cell := _find_best_move(move_cells, target.grid_pos, enemy.grid_pos)
+	var best_cell := _find_best_move(enemy, move_cells, target, enemy.grid_pos, skill)
 	
 	# 3. 移动
 	if best_cell != enemy.grid_pos:
@@ -76,11 +80,10 @@ static func run(enemy: Unit, grid_manager: GridManager, all_units: Array[Unit]) 
 		await Engine.get_main_loop().create_timer(0.2).timeout
 	
 	# 4. 检查是否在攻击范围内
-	if enemy.data.skills.is_empty():
+	if skill == null:
 		if logs.is_empty():
 			logs.append(_make_wait_log(enemy))
 		return logs
-	var skill: SkillData = enemy.data.skills[0]
 	var attack_cells: Array[Vector2i] = grid_manager.get_attack_range(enemy.grid_pos, skill.atk_range)
 	
 	if target.grid_pos in attack_cells:
@@ -116,6 +119,7 @@ static func run(enemy: Unit, grid_manager: GridManager, all_units: Array[Unit]) 
 				"target_hp_after": target.current_hp,
 				"type_multiplier": TypeChartUtil.get_damage_multiplier(skill.element_type, target.data.get_element_types()),
 				"type_relation_text": relation,
+				"targeting_hint": _get_targeting_hint(enemy, target),
 				"target_defeated": target.current_hp <= 0
 			}, skill.ap_cost),
 			[_unit_log_ref(enemy), _unit_log_ref(target)]
@@ -190,26 +194,110 @@ static func _get_charge_cells(center: Vector2i, radius: int, grid_manager: GridM
 				result.append(pos)
 	return result
 
-# 优先反击上一次攻击自己的单位；没有可用仇恨目标时，找最近的我方单位。
+# 评分选目标：反击、属性克制、低血和距离共同决定敌方攻击意图。
 static func _find_target(enemy: Unit, all_units: Array[Unit]) -> Unit:
-	if enemy.last_attacker != null \
-	and is_instance_valid(enemy.last_attacker) \
-	and enemy.last_attacker.is_alive() \
-	and enemy.last_attacker.is_ally():
-		return enemy.last_attacker
-	return _find_nearest_ally(enemy, all_units)
-
-static func _find_nearest_ally(enemy: Unit, all_units: Array[Unit]) -> Unit:
-	var nearest: Unit = null
-	var min_dist := INF
+	var best_target: Unit = null
+	var best_score := -INF
 	for unit in all_units:
-		if unit.is_ally() and unit.is_alive():
-			var dist: int = abs(unit.grid_pos.x - enemy.grid_pos.x) \
-					  + abs(unit.grid_pos.y - enemy.grid_pos.y)
-			if dist < min_dist:
-				min_dist = dist
-				nearest = unit
-	return nearest
+		if not unit.is_ally() or not unit.is_alive():
+			continue
+		var score := _score_target(enemy, unit)
+		if score > best_score:
+			best_score = score
+			best_target = unit
+	return best_target
+
+static func _score_target(enemy: Unit, target: Unit) -> float:
+	var score := 0.0
+	var dist := _distance(enemy.grid_pos, target.grid_pos)
+	score -= float(dist) * 2.0
+	if enemy.last_attacker == target:
+		score += 34.0
+	var hp_ratio := 1.0
+	if target.data.max_hp > 0:
+		hp_ratio = float(target.current_hp) / float(target.data.max_hp)
+	score += (1.0 - hp_ratio) * 18.0
+	if target.data.unit_type == Enums.UnitType.PLAYER:
+		score += 4.0
+	var attack_type := _get_primary_attack_type(enemy)
+	var type_multiplier := TypeChartUtil.get_damage_multiplier(attack_type, target.data.get_element_types())
+	if type_multiplier > 1.0:
+		score += 22.0 * type_multiplier
+	elif type_multiplier < 1.0:
+		score -= 10.0
+	score += _get_role_target_bonus(enemy, target)
+	return score
+
+static func _get_role_target_bonus(enemy: Unit, target: Unit) -> float:
+	var attack_type := _get_primary_attack_type(enemy)
+	var target_types := target.data.get_element_types()
+	match attack_type:
+		Enums.ElementType.FIRE:
+			if target_types.has(Enums.ElementType.GRASS) or target_types.has(Enums.ElementType.ICE):
+				return 12.0
+			return 0.0
+		Enums.ElementType.WATER:
+			if target_types.has(Enums.ElementType.FIRE) or target_types.has(Enums.ElementType.GROUND):
+				return 12.0
+			return 0.0
+		Enums.ElementType.GRASS:
+			if target_types.has(Enums.ElementType.WATER) or target_types.has(Enums.ElementType.GROUND):
+				return 12.0
+			return 0.0
+		Enums.ElementType.FLYING:
+			if target_types.has(Enums.ElementType.GRASS) or target_types.has(Enums.ElementType.GROUND):
+				return 12.0
+			if target.data.speed < enemy.data.speed:
+				return 5.0
+			return 0.0
+		Enums.ElementType.GROUND:
+			if target_types.has(Enums.ElementType.ELECTRIC) or target_types.has(Enums.ElementType.FIRE):
+				return 14.0
+			return 0.0
+		_:
+			return 0.0
+
+static func _get_primary_attack_type(unit: Unit) -> int:
+	if not unit.data.skills.is_empty():
+		var skill: SkillData = unit.data.skills[0]
+		return skill.element_type
+	return unit.data.element_type
+
+static func _get_targeting_hint(enemy: Unit, target: Unit) -> String:
+	if enemy.last_attacker == target:
+		return "retaliate"
+	var attack_type := _get_primary_attack_type(enemy)
+	var type_multiplier := TypeChartUtil.get_damage_multiplier(attack_type, target.data.get_element_types())
+	if type_multiplier > 1.0:
+		return "type_advantage"
+	var hp_ratio := 1.0
+	if target.data.max_hp > 0:
+		hp_ratio = float(target.current_hp) / float(target.data.max_hp)
+	if hp_ratio <= 0.35:
+		return "low_hp"
+	return "nearest_pressure"
+
+static func _find_charge_target(enemy: Unit, all_units: Array[Unit], fallback: Unit) -> Unit:
+	var best_target := fallback
+	var best_score := -INF
+	for unit in all_units:
+		if not unit.is_ally() or not unit.is_alive():
+			continue
+		if _distance(enemy.grid_pos, unit.grid_pos) > enemy.data.charge_range:
+			continue
+		var score := float(_count_allies_in_radius(unit.grid_pos, enemy.data.charge_radius, all_units)) * 30.0
+		score += _score_target(enemy, unit)
+		if score > best_score:
+			best_score = score
+			best_target = unit
+	return best_target
+
+static func _count_allies_in_radius(center: Vector2i, radius: int, all_units: Array[Unit]) -> int:
+	var count := 0
+	for unit in all_units:
+		if unit.is_ally() and unit.is_alive() and _distance(center, unit.grid_pos) <= radius:
+			count += 1
+	return count
 
 static func _distance(a: Vector2i, b: Vector2i) -> int:
 	return abs(a.x - b.x) + abs(a.y - b.y)
@@ -327,15 +415,33 @@ static func _join_strings(parts: Array, delimiter: String) -> String:
 		text += str(parts[i])
 	return text
 
-# 在可移动格子里找最靠近目标的一格
-static func _find_best_move(move_cells: Array[Vector2i], target: Vector2i, current: Vector2i) -> Vector2i:
+static func _find_best_move(enemy: Unit, move_cells: Array[Vector2i], target: Unit, current: Vector2i, skill: SkillData) -> Vector2i:
 	if move_cells.is_empty():
 		return current
 	var best := current
-	var min_dist: int = abs(current.x - target.x) + abs(current.y - target.y)
+	var best_score := _score_move_cell(enemy, current, target, skill)
 	for cell in move_cells:
-		var dist: int = abs(cell.x - target.x) + abs(cell.y - target.y)
-		if dist < min_dist:
-			min_dist = dist
+		var score := _score_move_cell(enemy, cell, target, skill)
+		if score > best_score:
+			best_score = score
 			best = cell
 	return best
+
+static func _score_move_cell(enemy: Unit, cell: Vector2i, target: Unit, skill: SkillData) -> float:
+	var dist := _distance(cell, target.grid_pos)
+	if skill == null:
+		return -float(dist)
+	var score := 0.0
+	if skill.atk_range >= 3:
+		var desired_dist := skill.atk_range
+		score -= float(abs(dist - desired_dist)) * 9.0
+		if dist > 0 and dist <= skill.atk_range:
+			score += 35.0
+		if dist <= 1:
+			score -= 18.0
+	else:
+		score -= float(dist) * 10.0
+		if dist == 1:
+			score += 28.0
+	score -= float(abs(cell.x - enemy.grid_pos.x) + abs(cell.y - enemy.grid_pos.y)) * 0.2
+	return score
