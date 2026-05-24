@@ -4,6 +4,7 @@ signal resource_event_emitted(event: Dictionary)
 signal action_preview_updated(preview: Dictionary)
 
 const TypeChartUtil = preload("res://core/TypeChart.gd")
+const StatusTypeUtil = preload("res://core/StatusTypes.gd")
 const CARD_RANGE := 3
 const SUMMON_COST := 50
 const RECALL_COST := 10
@@ -99,6 +100,7 @@ var _last_reversible_extract_log_index: int = -1
 # 缓存当前高亮的格子（用于点击判断）
 var _move_cells: Array[Vector2i] = []
 var _attack_cells: Array[Vector2i] = []
+var _card_range_cells: Array[Vector2i] = []
 var _card_cells: Array[Vector2i] = []
 
 func _ready() -> void:
@@ -651,6 +653,7 @@ func _end_turn() -> void:
 	_clear_extract_undo()
 	_move_cells.clear()
 	_attack_cells.clear()
+	_card_range_cells.clear()
 	_card_cells.clear()
 	_clear_skill_preview()
 	grid_manager.clear_highlights()
@@ -762,6 +765,7 @@ func _cancel_current_selection() -> void:
 	_selected_skill_target = Vector2i(-1, -1)
 	_move_cells.clear()
 	_attack_cells.clear()
+	_card_range_cells.clear()
 	_card_cells.clear()
 	_clear_skill_preview()
 	grid_manager.clear_highlights()
@@ -789,7 +793,13 @@ func _on_summon_pressed(summon_id: String) -> void:
 		return
 	_selected_summon_id = summon_id
 	_action_state = Enums.ActionState.SELECTING_SUMMON
+	_card_range_cells.clear()
 	_card_cells = _empty_cells_in_range(_trainer.grid_pos, CARD_RANGE)
+	if _card_cells.is_empty():
+		_action_state = Enums.ActionState.IDLE
+		_selected_summon_id = ""
+		_show_tip("训练师 %d 格内没有可召唤的空格。" % CARD_RANGE)
+		return
 	grid_manager.highlight_cells(_card_cells, GridManager.COLOR_MOVE)
 	action_menu.hide_menu()
 	_show_tip("选择训练师附近的空格召唤 %s。" % reserve_name)
@@ -801,9 +811,15 @@ func _on_recall_pressed() -> void:
 	if not _can_use_sync_action("回收"):
 		return
 	_selected_card_id = "recall"
+	_card_range_cells = _cells_in_range(_trainer.grid_pos, CARD_RANGE)
+	_card_cells = _get_valid_card_target_cells("recall", _card_range_cells)
+	if _card_cells.is_empty():
+		_selected_card_id = ""
+		_card_range_cells.clear()
+		_show_tip("范围内没有可回收的己方宝可梦。")
+		return
 	_action_state = Enums.ActionState.SELECTING_CARD
-	_card_cells = _cells_in_range(_trainer.grid_pos, CARD_RANGE)
-	grid_manager.highlight_cells(_card_cells, GridManager.COLOR_ATTACK)
+	grid_manager.highlight_cells(_card_cells, GridManager.COLOR_MOVE)
 	action_menu.hide_menu()
 	_show_tip("选择训练师附近的己方宝可梦回收，保留当前状态。")
 
@@ -816,11 +832,17 @@ func _on_card_pressed(card_id: String) -> void:
 	if not _can_pay_card(card_id):
 		return
 	_selected_card_id = card_id
+	_card_range_cells = _cells_in_range(_trainer.grid_pos, CARD_RANGE)
+	_card_cells = _get_valid_card_target_cells(card_id, _card_range_cells)
+	if _card_cells.is_empty():
+		_selected_card_id = ""
+		_card_range_cells.clear()
+		_show_tip(_get_no_valid_card_target_message(card_id))
+		return
 	_action_state = Enums.ActionState.SELECTING_CARD
-	_card_cells = _cells_in_range(_trainer.grid_pos, CARD_RANGE)
-	grid_manager.highlight_cells(_card_cells, GridManager.COLOR_ATTACK)
+	grid_manager.highlight_cells(_card_cells, _get_card_target_highlight_color(card_id))
 	action_menu.hide_menu()
-	_show_tip("选择 %s 的目标。" % CARD_DEFS[card_id]["name"])
+	_show_tip(_get_card_target_prompt(card_id))
 
 func _on_extract_pressed(extract_id: String) -> void:
 	if not _is_trainer_turn():
@@ -944,6 +966,8 @@ func _on_cell_clicked(grid_pos: Vector2i) -> void:
 		Enums.ActionState.SELECTING_CARD:
 			if grid_pos in _card_cells:
 				_resolve_card(grid_pos)
+			elif grid_pos in _card_range_cells:
+				_show_tip(_get_invalid_card_target_message(_selected_card_id))
 
 		Enums.ActionState.SELECTING_SUMMON:
 			if grid_pos in _card_cells and not grid_manager.is_occupied(grid_pos):
@@ -1830,6 +1854,9 @@ func _save_turn_start_state(unit: Unit) -> void:
 		"shield": unit.shield,
 		"current_stability": unit.current_stability,
 		"stability_depleted": unit.stability_depleted,
+		"power_boost_next_attack": unit.power_boost_next_attack,
+		"weak_marked": unit.weak_marked,
+		"calibrated_attack_type": unit.calibrated_attack_type,
 		"bonus_move_range": unit.bonus_move_range
 	}
 
@@ -1856,6 +1883,7 @@ func _cancel_to_action_menu(message: String) -> void:
 	_selected_skill_target = Vector2i(-1, -1)
 	_move_cells.clear()
 	_attack_cells.clear()
+	_card_range_cells.clear()
 	_card_cells.clear()
 	_clear_skill_preview()
 	grid_manager.clear_highlights()
@@ -2015,13 +2043,18 @@ func _describe_card(card_id: String) -> String:
 		status = "同步率不足"
 	elif card_id == "calibrate" and _get_trainer_calibration_type() == Enums.ElementType.NONE:
 		status = "训练师没有同步属性"
-	return "%s：消耗 %d，同步率当前 %d，自然上限 %d，冷却 %d。%s\n状态：%s" % [
+	var duration_text := _get_card_duration_text(card_id)
+	if duration_text != "":
+		duration_text = "\n持续：" + duration_text
+	return "%s：消耗 %d，同步率当前 %d，自然上限 %d，冷却 %d。%s\n目标：%s%s\n状态：%s" % [
 		card_def["name"],
 		card_def["cost"],
 		_sync_points,
 		SYNC_NATURAL_CAP,
 		card_def["cooldown"],
 		card_def["effect"],
+		_get_card_target_rule_text(card_id),
+		duration_text,
 		status
 	]
 
@@ -2069,6 +2102,34 @@ func _describe_extract(extract_id: String) -> String:
 		status
 	]
 
+func _get_card_target_rule_text(card_id: String) -> String:
+	match card_id:
+		"haste", "power", "calibrate":
+			return "训练师 %d 格内的己方宝可梦" % CARD_RANGE
+		"shield":
+			return "训练师 %d 格内的己方单位" % CARD_RANGE
+		"weak_mark":
+			return "训练师 %d 格内的敌方单位" % CARD_RANGE
+		"swap":
+			return "训练师 %d 格内的己方宝可梦" % CARD_RANGE
+		_:
+			return "训练师 %d 格内的合法目标" % CARD_RANGE
+
+func _get_card_duration_text(card_id: String) -> String:
+	match card_id:
+		"haste":
+			return StatusTypeUtil.get_duration_text(StatusTypeUtil.DurationType.NEXT_MOVE)
+		"shield":
+			return StatusTypeUtil.get_duration_text(StatusTypeUtil.DurationType.PERMANENT)
+		"power", "calibrate":
+			return StatusTypeUtil.get_duration_text(StatusTypeUtil.DurationType.NEXT_ATTACK)
+		"weak_mark":
+			return StatusTypeUtil.get_duration_text(StatusTypeUtil.DurationType.NEXT_DAMAGE_TAKEN)
+		"swap":
+			return "立即结算"
+		_:
+			return ""
+
 func _get_card_short_name(card_id: String) -> String:
 	match card_id:
 		"haste":
@@ -2085,6 +2146,77 @@ func _get_card_short_name(card_id: String) -> String:
 			return "校准"
 		_:
 			return str(card_id)
+
+func _get_valid_card_target_cells(card_id: String, cells: Array[Vector2i]) -> Array[Vector2i]:
+	var result: Array[Vector2i] = []
+	for cell in cells:
+		var target := grid_manager.get_unit_at(cell)
+		if _is_valid_card_target(card_id, target):
+			result.append(cell)
+	return result
+
+func _is_valid_card_target(card_id: String, target: Unit) -> bool:
+	if target == null or not is_instance_valid(target) or not target.is_alive():
+		return false
+	match card_id:
+		"haste", "power":
+			return target.is_ally() and target.data.unit_type != Enums.UnitType.PLAYER
+		"shield":
+			return target.is_ally()
+		"weak_mark":
+			return target.is_enemy()
+		"swap":
+			return target.is_ally() and target.data.unit_type != Enums.UnitType.PLAYER
+		"calibrate":
+			return target.is_ally() \
+				and target.data.unit_type != Enums.UnitType.PLAYER \
+				and _get_trainer_calibration_type() != Enums.ElementType.NONE
+		"recall":
+			return target.is_ally() and target.data.unit_type != Enums.UnitType.PLAYER
+		_:
+			return false
+
+func _get_card_target_highlight_color(card_id: String) -> Color:
+	if card_id == "weak_mark":
+		return GridManager.COLOR_ATTACK
+	return GridManager.COLOR_MOVE
+
+func _get_card_target_prompt(card_id: String) -> String:
+	match card_id:
+		"weak_mark":
+			return "选择红色高亮的敌方目标标记弱点。Esc 取消。"
+		"swap":
+			return "选择蓝色高亮的己方宝可梦，与训练师换位。Esc 取消。"
+		"calibrate":
+			return "选择蓝色高亮的己方宝可梦，校准它的下一次攻击属性。Esc 取消。"
+		"haste", "power":
+			return "选择蓝色高亮的己方宝可梦作为 %s 目标。Esc 取消。" % CARD_DEFS[card_id]["name"]
+		"shield":
+			return "选择蓝色高亮的己方单位获得护盾。Esc 取消。"
+		_:
+			return "选择高亮的合法目标。Esc 取消。"
+
+func _get_no_valid_card_target_message(card_id: String) -> String:
+	match card_id:
+		"weak_mark":
+			return "训练师 %d 格内没有可标记的敌方目标。" % CARD_RANGE
+		"swap":
+			return "训练师 %d 格内没有可换位的己方宝可梦。" % CARD_RANGE
+		"calibrate":
+			if _get_trainer_calibration_type() == Enums.ElementType.NONE:
+				return "训练师当前没有提取属性，不能使用属性校准。"
+			return "训练师 %d 格内没有可校准的己方宝可梦。" % CARD_RANGE
+		"haste", "power":
+			return "训练师 %d 格内没有可作为 %s 目标的己方宝可梦。" % [CARD_RANGE, CARD_DEFS[card_id]["name"]]
+		"shield":
+			return "训练师 %d 格内没有可获得护盾的己方单位。" % CARD_RANGE
+		_:
+			return "范围内没有合法目标。"
+
+func _get_invalid_card_target_message(card_id: String) -> String:
+	if card_id == "recall":
+		return "回收只能选择训练师附近的己方宝可梦。"
+	return "%s 不能选择这个目标；请点击高亮格。" % str(CARD_DEFS.get(card_id, {}).get("name", "这个指令"))
 
 func _get_extract_short_name(extract_id: String) -> String:
 	match extract_id:
