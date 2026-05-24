@@ -12,7 +12,7 @@ extends Resource
 @export var skills: Array[Resource] = []  # 携带的 SkillData 列表
 @export var element_type: Enums.ElementType = Enums.ElementType.NONE
 @export var element_types: Array[int] = []  # 支持未来双属性；为空时回退到 element_type
-@export var max_stability: int = 0   # 预留字段；当前 MVP 不展示也不参与捕捉
+@export var max_stability: int = 0   # 预留字段；当前 MVP 不展示也不参与结算
 @export var can_charge_attack: bool = false
 @export var charge_interval: int = 3
 @export var charge_damage: int = 16

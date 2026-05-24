@@ -18,7 +18,9 @@ const CARD_DEFS := {
 	"haste": {"name": "高速组件", "cost": 30, "cooldown": 2, "effect": "目标宝可梦下一次移动距离 +2，移动后消耗。"},
 	"shield": {"name": "小型护盾", "cost": 20, "cooldown": 2, "effect": "目标友方获得 30 护盾，护盾会抵消之后受到的伤害。"},
 	"power": {"name": "火力插件", "cost": 25, "cooldown": 2, "effect": "目标宝可梦下一次攻击伤害提高 50%，攻击后消耗。"},
-	"capture": {"name": "空白封印卡", "cost": 40, "cooldown": 3, "effect": "封印野生宝可梦。成功率随目标 HP 降低提高，红色血条时 100%。"},
+	"weak_mark": {"name": "弱点标记", "cost": 25, "cooldown": 2, "effect": "标记敌方目标，使其下次受到的伤害提高 50%，受击后消耗。"},
+	"swap": {"name": "战术换位", "cost": 20, "cooldown": 2, "effect": "训练师与目标己方宝可梦交换位置。"},
+	"calibrate": {"name": "属性校准", "cost": 25, "cooldown": 2, "effect": "目标宝可梦下一次攻击使用训练师当前提取属性结算克制，攻击后消耗。"},
 }
 const SUMMON_DEFS := {
 	"fire": {"name": "召唤火狐兽", "reserve": "火狐兽", "short": "召火", "effect": "火属性输出型后备，擅长压制草/冰属性和打爆发。"},
@@ -52,7 +54,6 @@ var _all_units: Array[Unit] = []
 var _pokemon_roster: Dictionary = {}
 var _reserve_units: Dictionary = {}
 var _trainer_extract_id: String = ""
-var _captured_names: Array[String] = []
 
 var _sync_points: int = 100
 var _selected_card_id: String = ""
@@ -350,7 +351,7 @@ func _build_battle_briefing_panel() -> void:
 	title.add_theme_font_size_override("font_size", 14)
 	box.add_child(title)
 	var objective := Label.new()
-	objective.text = "目标：击败全部敌人，或封印铁甲巨兽后清掉剩余敌人。"
+	objective.text = "目标：击败全部敌人。"
 	objective.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	objective.add_theme_font_size_override("font_size", 9)
 	box.add_child(objective)
@@ -371,8 +372,8 @@ func _get_battle_briefing_text() -> String:
 	var lines: Array[String] = [
 		"关键规则",
 		"1. 属性克制造成 2 倍伤害；确认攻击前会显示实际伤害。",
-		"2. 封印只看 HP：越低越容易，红色血条时 100%。",
-		"3. 同步率用于指令、提取、召唤；每个训练师回合最多 1 次。",
+		"2. 同步率用于指令、提取、召唤；每个训练师回合最多 1 次。",
+		"3. 指令卡可以强化移动/护盾/伤害，也能标记弱点、换位或校准属性。",
 		"4. 默认形态：%s；对应后备会被同步占用。" % _get_extract_display_name(_prep_extract_id, true),
 		"5. 可随时点“敌方范围”查看敌方全体威胁。"
 	]
@@ -382,7 +383,7 @@ func _start_battle_after_briefing() -> void:
 	if is_instance_valid(_briefing_panel):
 		_briefing_panel.queue_free()
 	_briefing_panel = null
-	_show_tip("目标：击败敌人，或把铁甲巨兽压到红血后封印。")
+	_show_tip("目标：击败全部敌人。用属性克制和同步率指令处理铁甲巨兽。")
 	ctb_system.start()
 
 func _get_selected_pokemon_names_text() -> String:
@@ -589,12 +590,11 @@ func _on_unit_ready(unit: Unit) -> void:
 	_active_unit.has_acted = false
 	_active_unit.has_moved = false
 	_turn_ap_cost = NO_SKILL_AP_COST
-	_capture_turn_start_state(_active_unit)
+	_save_turn_start_state(_active_unit)
 	_turn_has_support_action = false
 	_clear_extract_undo()
 	_tick_card_cooldowns()
 	_gain_sync(_get_natural_sync_gain_amount(), "自然回复", true)
-	_update_capture_marks()
 	if not is_instance_valid(_active_unit) or not _active_unit.is_alive():
 		if _battle_state != Enums.BattleState.BATTLE_OVER:
 			ctb_system.resume()
@@ -615,7 +615,7 @@ func _on_unit_ready(unit: Unit) -> void:
 		_battle_state = Enums.BattleState.PLAYER_TURN
 		_action_state = Enums.ActionState.IDLE
 		if _active_unit.data.unit_type == Enums.UnitType.PLAYER:
-			_show_tip("轮到 %s。训练师回合可以提取后备能力、刷卡、召唤、回收和封印。" % _active_unit.data.unit_name)
+			_show_tip("轮到 %s。训练师回合可以提取后备能力、刷指令、召唤或回收。" % _active_unit.data.unit_name)
 		elif _trainer_disabled:
 			_show_tip("轮到 %s。训练师已倒下，无法再使用卡牌和切换宝可梦。" % _active_unit.data.unit_name)
 		else:
@@ -820,10 +820,7 @@ func _on_card_pressed(card_id: String) -> void:
 	_card_cells = _cells_in_range(_trainer.grid_pos, CARD_RANGE)
 	grid_manager.highlight_cells(_card_cells, GridManager.COLOR_ATTACK)
 	action_menu.hide_menu()
-	if card_id == "capture":
-		_show_tip("选择野生宝可梦封印。HP 越低成功率越高，红色血条时 100%。")
-	else:
-		_show_tip("选择 %s 的目标。" % CARD_DEFS[card_id]["name"])
+	_show_tip("选择 %s 的目标。" % CARD_DEFS[card_id]["name"])
 
 func _on_extract_pressed(extract_id: String) -> void:
 	if not _is_trainer_turn():
@@ -849,7 +846,7 @@ func _on_extract_pressed(extract_id: String) -> void:
 		and not _active_unit.has_moved \
 		and not _active_unit.has_acted
 	if can_undo_extract:
-		_capture_extract_undo_state()
+		_save_extract_undo_state()
 	else:
 		_clear_extract_undo(true)
 	_spend_sync(EXTRACT_COST, "提取 %s" % reserve_name, _trainer, null, {
@@ -894,7 +891,7 @@ func _on_extract_pressed(extract_id: String) -> void:
 
 func _can_use_sync_action(action_name: String) -> bool:
 	if _turn_has_support_action:
-		_show_tip("本回合已经使用过同步率操作，不能再%s。每个训练师回合只能在指令、提取、召唤、回收或封印中选择 1 次。" % action_name)
+		_show_tip("本回合已经使用过同步率操作，不能再%s。每个训练师回合只能在指令、提取、召唤或回收中选择 1 次。" % action_name)
 		return false
 	return true
 
@@ -1071,7 +1068,10 @@ func _execute_skill_preview(attacker: Unit, skill: SkillData, target_pos: Vector
 		var target: Unit = entry["target"]
 		if not is_instance_valid(target) or not target.is_alive():
 			continue
-		var actual := target.take_damage(entry["raw_damage"], attacker, skill.element_type)
+		var attack_type: int = int(entry.get("attack_type", _get_skill_attack_type(attacker, skill)))
+		var weak_mark_consumed := target.weak_marked
+		var calibrated_attack_consumed := attacker.calibrated_attack_type != Enums.ElementType.NONE
+		var actual := target.take_damage(entry["raw_damage"], attacker, attack_type)
 		total_damage += actual
 		var log_parts: Array[String] = [
 			"%s 使用 %s -> %s" % [
@@ -1080,9 +1080,13 @@ func _execute_skill_preview(attacker: Unit, skill: SkillData, target_pos: Vector
 				target.data.unit_name
 			]
 		]
-		var relation := _get_element_relation_text(skill.element_type, target.data.get_element_types())
+		var relation := _get_element_relation_text(attack_type, target.data.get_element_types())
 		if relation != "":
 			log_parts.append(relation)
+		if calibrated_attack_consumed:
+			log_parts.append("属性校准%s" % TypeChartUtil.get_type_name(attack_type))
+		if weak_mark_consumed:
+			log_parts.append("弱点+50%")
 		log_parts.append("伤害 %d" % actual)
 		if target.current_hp <= 0:
 			log_parts.append("%s倒下" % target.data.unit_name)
@@ -1096,26 +1100,31 @@ func _execute_skill_preview(attacker: Unit, skill: SkillData, target_pos: Vector
 				"actor": _unit_log_data(attacker),
 				"target": _unit_log_data(target),
 				"skill_name": skill.skill_name,
-				"element_type": skill.element_type,
+				"element_type": attack_type,
+				"base_element_type": skill.element_type,
 				"target_pos": _pos_log_data(target.grid_pos),
 				"raw_damage": entry["raw_damage"],
 				"hp_damage": actual,
 				"target_hp_after": target.current_hp,
-				"type_multiplier": TypeChartUtil.get_damage_multiplier(skill.element_type, target.data.get_element_types()),
+				"type_multiplier": TypeChartUtil.get_damage_multiplier(attack_type, target.data.get_element_types()),
 				"type_relation_text": relation,
+				"weak_mark_consumed": weak_mark_consumed,
+				"calibrated_attack_consumed": calibrated_attack_consumed,
+				"calibrated_attack_type": attack_type if calibrated_attack_consumed else Enums.ElementType.NONE,
 				"target_defeated": target.current_hp <= 0
 			}, skill.ap_cost),
 			[_unit_log_ref(attacker), _unit_log_ref(target)]
 		)
 	if attacker.power_boost_next_attack:
 		attacker.set_power_boost(false)
+	if attacker.calibrated_attack_type != Enums.ElementType.NONE:
+		attacker.consume_calibrated_attack_type()
 	if attacker.is_ally() and total_damage > 0:
 		if attacker.data.unit_type == Enums.UnitType.PLAYER:
 			_gain_sync(8, "训练师攻击")
 		else:
 			_gain_sync(5, "宝可梦攻击")
 	_show_tip("%s 命中 %d 个目标，共造成 %d 伤害。" % [skill.skill_name, entries.size(), total_damage])
-	_update_capture_marks()
 	_check_battle_over()
 
 func _resolve_card(grid_pos: Vector2i) -> void:
@@ -1169,43 +1178,80 @@ func _resolve_card(grid_pos: Vector2i) -> void:
 					[_unit_log_ref(_trainer), _unit_log_ref(target)]
 				)
 				_finish_card("%s 的下一次攻击被强化。" % target.data.unit_name)
-		"capture":
-			if target != null and target.can_attempt_capture():
-				var capture_chance := target.get_capture_chance()
-				var capture_roll := randf()
-				_pay_card("capture")
+		"weak_mark":
+			if target != null and target.is_enemy():
+				_pay_card("weak_mark")
+				target.set_weak_marked(true)
 				_add_battle_log(
-					"%s 使用指令 %s -> %s，消耗同步率 %d，成功率 %s。" % [
+					"%s 使用指令 %s -> %s，消耗同步率 %d，下次受伤+50%%。" % [
 						_trainer.data.unit_name,
-						CARD_DEFS["capture"]["name"],
+						CARD_DEFS["weak_mark"]["name"],
 						target.data.unit_name,
-						CARD_DEFS["capture"]["cost"],
-						_format_percent(capture_chance)
+						CARD_DEFS["weak_mark"]["cost"]
 					],
-					_build_card_log_metadata("capture", target, {
-						"capture_chance": capture_chance,
-						"capture_roll": capture_roll,
-						"guaranteed": capture_chance >= 1.0
+					_build_card_log_metadata("weak_mark", target, {
+						"weak_mark_multiplier": 1.5
 					}),
 					[_unit_log_ref(_trainer), _unit_log_ref(target)]
 				)
-				if capture_roll <= capture_chance:
-					_capture_unit(target, capture_chance)
-				else:
-					_add_battle_log(
-						"%s 封印失败，%s 仍可行动。" % [_trainer.data.unit_name, target.data.unit_name],
-						{
-							"event_type": "capture_failed",
-							"actor": _unit_log_data(_trainer),
-							"target": _unit_log_data(target),
-							"capture_chance": capture_chance,
-							"capture_roll": capture_roll
-						},
-						[_unit_log_ref(_trainer), _unit_log_ref(target)]
-					)
-					_finish_card("封印失败（成功率 %s）。" % _format_percent(capture_chance))
+				_finish_card("%s 被标记，下次受到伤害提高 50%%。" % target.data.unit_name)
 			else:
-				_show_tip("只能对野生宝可梦使用封印。目标 HP 越低成功率越高，红色血条时 100%。")
+				_show_tip("弱点标记只能选择敌方目标。")
+		"swap":
+			if target != null and target.is_ally() and target.data.unit_type != Enums.UnitType.PLAYER:
+				var trainer_from := _trainer.grid_pos
+				var target_from := target.grid_pos
+				_pay_card("swap")
+				grid_manager.remove_unit(trainer_from)
+				grid_manager.remove_unit(target_from)
+				grid_manager.place_unit(_trainer, target_from)
+				grid_manager.place_unit(target, trainer_from)
+				_trainer.grid_pos = target_from
+				target.grid_pos = trainer_from
+				_add_battle_log(
+					"%s 使用指令 %s，与 %s 换位，消耗同步率 %d。" % [
+						_trainer.data.unit_name,
+						CARD_DEFS["swap"]["name"],
+						target.data.unit_name,
+						CARD_DEFS["swap"]["cost"]
+					],
+					_build_card_log_metadata("swap", target, {
+						"trainer_from_pos": _pos_log_data(trainer_from),
+						"trainer_to_pos": _pos_log_data(target_from),
+						"target_from_pos": _pos_log_data(target_from),
+						"target_to_pos": _pos_log_data(trainer_from)
+					}),
+					[_unit_log_ref(_trainer), _unit_log_ref(target)]
+				)
+				_update_enemy_threat_overlay()
+				_finish_card("%s 与 %s 已换位。" % [_trainer.data.unit_name, target.data.unit_name])
+			else:
+				_show_tip("战术换位只能选择训练师附近的己方宝可梦。")
+		"calibrate":
+			if target != null and target.is_ally() and target.data.unit_type != Enums.UnitType.PLAYER:
+				var calibration_type := _get_trainer_calibration_type()
+				if calibration_type == Enums.ElementType.NONE:
+					_show_tip("训练师当前没有提取属性，不能校准。")
+					return
+				_pay_card("calibrate")
+				target.set_calibrated_attack_type(calibration_type)
+				_add_battle_log(
+					"%s 使用指令 %s -> %s，消耗同步率 %d，下次攻击改为%s属性。" % [
+						_trainer.data.unit_name,
+						CARD_DEFS["calibrate"]["name"],
+						target.data.unit_name,
+						CARD_DEFS["calibrate"]["cost"],
+						TypeChartUtil.get_type_name(calibration_type)
+					],
+					_build_card_log_metadata("calibrate", target, {
+						"calibrated_attack_type": calibration_type,
+						"calibrated_attack_type_name": TypeChartUtil.get_type_name(calibration_type)
+					}),
+					[_unit_log_ref(_trainer), _unit_log_ref(target)]
+				)
+				_finish_card("%s 下一次攻击会按%s属性结算。" % [target.data.unit_name, TypeChartUtil.get_type_name(calibration_type)])
+			else:
+				_show_tip("属性校准只能选择训练师附近的己方宝可梦。")
 
 func _finish_card(message: String) -> void:
 	_action_state = Enums.ActionState.IDLE
@@ -1296,26 +1342,6 @@ func _summon_reserve(grid_pos: Vector2i) -> void:
 	_show_action_menu()
 	_show_tip("%s 入场。同步率回复会因为多一只宝可梦而变慢。" % reserve_name)
 
-func _capture_unit(unit: Unit, capture_chance: float = 1.0) -> void:
-	_captured_names.append(unit.data.unit_name)
-	var captured_log_data := _unit_log_data(unit)
-	var captured_log_ref := _unit_log_ref(unit)
-	_gain_sync(18, "捕捉")
-	_remove_unit(unit, false)
-	_add_battle_log(
-		"%s 封印成功，获得 %s，同步率+18。" % [_trainer.data.unit_name, _captured_names.back()],
-		{
-			"event_type": "capture_success",
-			"actor": _unit_log_data(_trainer),
-			"target": captured_log_data,
-			"capture_chance": capture_chance,
-			"sync_gain": 18
-		},
-		[_unit_log_ref(_trainer), captured_log_ref]
-	)
-	_finish_card("封印成功，获得 %s。" % _captured_names.back())
-	_check_battle_over()
-
 # ── 资源、地形与工具 ────────────────────────────────────────────
 
 func _is_trainer_turn() -> bool:
@@ -1341,7 +1367,15 @@ func _apply_trainer_extract(extract_id: String) -> void:
 	_trainer.data.skills.append(reserve_data.skills[skill_index])
 	_trainer.refresh_status()
 
-func _capture_extract_undo_state() -> void:
+func _get_trainer_calibration_type() -> int:
+	if _trainer == null or not is_instance_valid(_trainer):
+		return Enums.ElementType.NONE
+	var element_types := _trainer.data.get_element_types()
+	if element_types.is_empty():
+		return Enums.ElementType.NONE
+	return int(element_types[0])
+
+func _save_extract_undo_state() -> void:
 	if _trainer == null or not is_instance_valid(_trainer):
 		_clear_extract_undo()
 		return
@@ -1561,7 +1595,7 @@ func _update_sync_ui() -> void:
 	var natural_gain_text := "自然+%d" % _get_natural_sync_gain_amount()
 	if _sync_points >= SYNC_NATURAL_CAP:
 		natural_gain_text = "自然暂停"
-	_sync_label.text = "同步率 %d  自然上限%d\n形态 %s  宝%d 后备 %s\n获得: %s 训攻+8 宝攻+5 捕+18\n冷却 %s" % [
+	_sync_label.text = "同步率 %d  自然上限%d\n形态 %s  宝%d 后备 %s\n获得: %s 训攻+8 宝攻+5\n冷却 %s" % [
 		_sync_points,
 		SYNC_NATURAL_CAP,
 		trainer_form,
@@ -1756,9 +1790,6 @@ func _join_strings(parts: Array, delimiter: String) -> String:
 func _format_grid_pos(pos: Vector2i) -> String:
 	return "(%d,%d)" % [pos.x, pos.y]
 
-func _format_percent(value: float) -> String:
-	return "%d%%" % int(round(value * 100.0))
-
 func _is_summon_locked_by_extract(summon_id: String) -> bool:
 	if _trainer_extract_id == "" \
 	or not SUMMON_DEFS.has(summon_id) \
@@ -1788,7 +1819,7 @@ func _show_tip(text: String) -> void:
 	if is_instance_valid(_tip_label):
 		_tip_label.text = text
 
-func _capture_turn_start_state(unit: Unit) -> void:
+func _save_turn_start_state(unit: Unit) -> void:
 	if unit == null or not is_instance_valid(unit):
 		_turn_start_pos = Vector2i(-1, -1)
 		_turn_start_snapshot.clear()
@@ -1799,7 +1830,6 @@ func _capture_turn_start_state(unit: Unit) -> void:
 		"shield": unit.shield,
 		"current_stability": unit.current_stability,
 		"stability_depleted": unit.stability_depleted,
-		"capture_ready": unit.capture_ready,
 		"bonus_move_range": unit.bonus_move_range
 	}
 
@@ -1931,8 +1961,8 @@ func _build_action_descriptions() -> Dictionary:
 	if _turn_has_support_action:
 		descriptions["group_sync"] = "同步率：本回合已经使用过 1 次同步率操作。若刚提取且尚未行动，可按 Esc 撤销。"
 	else:
-		descriptions["group_sync"] = "同步率：本回合可在指令、提取、召唤、回收或封印中选择 1 次。移动和技能不占用这次机会。"
-	descriptions["group_cards"] = "指令：消耗同步率强化、保护、回收或封印目标。本回合与提取、召唤共享 1 次同步率操作。"
+		descriptions["group_sync"] = "同步率：本回合可在指令、提取、召唤或回收中选择 1 次。移动和技能不占用这次机会。"
+	descriptions["group_cards"] = "指令：消耗同步率强化、保护、标记弱点、换位或校准属性。本回合与提取、召唤共享 1 次同步率操作。"
 	descriptions["group_summon"] = "召唤：选择一只仍在后备、且没有提供当前同步形态的宝可梦入场。召唤会让对应提取暂时不可用，并占用本回合同步率操作。"
 	descriptions["group_extract"] = "提取：切换训练师当前属性和技能，持续到下一次提取；占用本回合同步率操作。未行动前可按 Esc 撤销。"
 	for i in range(2):
@@ -1983,16 +2013,8 @@ func _describe_card(card_id: String) -> String:
 		status = "冷却中，还需 %d 次行动" % left
 	elif _sync_points < card_def["cost"]:
 		status = "同步率不足"
-	if card_id == "capture":
-		return "%s：消耗 %d，同步率当前 %d，自然上限 %d，冷却 %d。%s\n规则：HP 越低成功率越高，红色血条时 100%%。\n状态：%s" % [
-			card_def["name"],
-			card_def["cost"],
-			_sync_points,
-			SYNC_NATURAL_CAP,
-			card_def["cooldown"],
-			card_def["effect"],
-			status
-		]
+	elif card_id == "calibrate" and _get_trainer_calibration_type() == Enums.ElementType.NONE:
+		status = "训练师没有同步属性"
 	return "%s：消耗 %d，同步率当前 %d，自然上限 %d，冷却 %d。%s\n状态：%s" % [
 		card_def["name"],
 		card_def["cost"],
@@ -2055,8 +2077,12 @@ func _get_card_short_name(card_id: String) -> String:
 			return "护盾"
 		"power":
 			return "火力"
-		"capture":
-			return "封印"
+		"weak_mark":
+			return "标记"
+		"swap":
+			return "换位"
+		"calibrate":
+			return "校准"
 		_:
 			return str(card_id)
 
@@ -2149,11 +2175,13 @@ func _build_skill_preview(attacker: Unit, skill: SkillData, target_pos: Vector2i
 		if not target.is_enemy():
 			continue
 		var raw_damage := _get_raw_skill_damage(attacker, skill)
-		var hp_damage := _get_expected_hp_damage(target, raw_damage, skill.element_type)
+		var attack_type := _get_skill_attack_type(attacker, skill)
+		var hp_damage := _get_expected_hp_damage(target, raw_damage, attack_type)
 		result.append({
 			"target": target,
 			"raw_damage": raw_damage,
-			"hp_damage": hp_damage
+			"hp_damage": hp_damage,
+			"attack_type": attack_type
 		})
 	return result
 
@@ -2176,7 +2204,9 @@ func _build_action_preview(attacker: Unit, skill: SkillData, entries: Array[Dict
 		else:
 			target_preview["hp_damage"] = int(entry["hp_damage"])
 			target_preview["hp_after"] = max(target.current_hp - int(entry["hp_damage"]), 0)
-			target_preview["type_multiplier"] = TypeChartUtil.get_damage_multiplier(skill.element_type, target.data.get_element_types())
+			var attack_type: int = int(entry.get("attack_type", skill.element_type))
+			target_preview["attack_type"] = attack_type
+			target_preview["type_multiplier"] = TypeChartUtil.get_damage_multiplier(attack_type, target.data.get_element_types())
 		targets.append(target_preview)
 	return {
 		"event_type": "skill_action_preview",
@@ -2210,9 +2240,19 @@ func _get_raw_skill_damage(attacker: Unit, skill: SkillData) -> int:
 func _get_raw_skill_heal(attacker: Unit, skill: SkillData) -> int:
 	return max(skill.damage + attacker.data.attack, 1)
 
+func _get_skill_attack_type(attacker: Unit, skill: SkillData) -> int:
+	if skill.effect_type == SkillData.EffectType.DAMAGE \
+	and attacker != null \
+	and is_instance_valid(attacker) \
+	and attacker.calibrated_attack_type != Enums.ElementType.NONE:
+		return attacker.calibrated_attack_type
+	return skill.element_type
+
 func _get_expected_hp_damage(target: Unit, raw_damage: int, attack_type: int) -> int:
 	var damage_after_defense: int = max(raw_damage - target.data.defense, 1)
 	damage_after_defense = TypeChartUtil.apply_damage_multiplier(damage_after_defense, attack_type, target.data.get_element_types())
+	if target.weak_marked:
+		damage_after_defense = max(int(round(float(damage_after_defense) * 1.5)), 1)
 	return max(damage_after_defense - target.shield, 0)
 
 func _show_preview_area(skill: SkillData, target_pos: Vector2i) -> void:
@@ -2250,19 +2290,29 @@ func _show_preview_panel(attacker: Unit, skill: SkillData, entries: Array[Dictio
 	for entry in entries:
 		var target: Unit = entry["target"]
 		var hp_damage: int = entry["hp_damage"]
+		var attack_type: int = int(entry.get("attack_type", _get_skill_attack_type(attacker, skill)))
 		total_damage += hp_damage
 		var hp_after: int = max(target.current_hp - hp_damage, 0)
-		var line := "%s HP %d>%d  伤%d" % [
+		var modifiers: Array[String] = []
+		var relation := _get_element_relation_text(attack_type, target.data.get_element_types())
+		if relation != "":
+			modifiers.append(relation)
+		if attacker.calibrated_attack_type != Enums.ElementType.NONE:
+			modifiers.append("校" + TypeChartUtil.get_type_name(attack_type))
+		if target.weak_marked:
+			modifiers.append("弱点+50%")
+		if hp_damage == 0 and target.shield > 0:
+			modifiers.append("护盾吸收")
+		var modifier_text := ""
+		if not modifiers.is_empty():
+			modifier_text = _join_strings(modifiers, " ") + " "
+		var line := "%s HP %d>%d  %s伤%d" % [
 			target.data.unit_name,
 			target.current_hp,
 			hp_after,
+			modifier_text,
 			hp_damage
 		]
-		var relation := _get_element_relation_text(skill.element_type, target.data.get_element_types())
-		if relation != "":
-			line += " " + relation
-		if hp_damage == 0 and target.shield > 0:
-			line += " 护盾吸收"
 		lines.append(line)
 	lines.append("总伤害 %d" % total_damage)
 	if attacker.power_boost_next_attack:
@@ -2308,11 +2358,6 @@ func _clear_preview_markers() -> void:
 func _get_element_relation_text(attack_type: int, target_types: Array[int]) -> String:
 	return TypeChartUtil.get_multiplier_text(TypeChartUtil.get_damage_multiplier(attack_type, target_types))
 
-func _update_capture_marks() -> void:
-	for unit in _all_units:
-		if is_instance_valid(unit):
-			unit.set_capture_ready(unit.is_capturable())
-
 func _remove_unit(unit: Unit, check_over: bool = true) -> void:
 	if not is_instance_valid(unit):
 		return
@@ -2328,7 +2373,7 @@ func _remove_unit(unit: Unit, check_over: bool = true) -> void:
 		_check_battle_over()
 
 func _on_unit_status_changed(_unit: Unit) -> void:
-	_update_capture_marks()
+	pass
 
 # ── 胜负判断 ────────────────────────────────────────────────────
 
@@ -2337,7 +2382,7 @@ func _on_unit_died(unit: Unit) -> void:
 		_trainer_disabled = true
 		_trainer = null
 		_remove_unit(unit, false)
-		_show_tip("训练师倒下：对局继续，但无法再刷卡、召唤、回收或封印。")
+		_show_tip("训练师倒下：对局继续，但无法再刷指令、召唤或回收。")
 		_update_sync_ui()
 		return
 	if unit.is_enemy():
@@ -2394,16 +2439,12 @@ func _show_result_panel(victory: bool) -> void:
 	box.add_child(note)
 
 func _get_battle_result_summary(victory: bool) -> String:
-	var captured_text := "无"
-	if _captured_names.size() > 0:
-		captured_text = _join_strings(_captured_names, "、")
 	var trainer_text := "倒下" if _trainer_disabled else "存活"
 	var goal_text := "目标达成：敌方已清空。"
 	if not victory:
 		goal_text = "目标失败：己方全体倒下。"
 	var lines: Array[String] = [
 		goal_text,
-		"封印：%s" % captured_text,
 		"击败敌人：%d" % _defeated_enemy_count,
 		"同步率操作：%d" % _count_sync_action_logs(),
 		"训练师：%s" % trainer_text,

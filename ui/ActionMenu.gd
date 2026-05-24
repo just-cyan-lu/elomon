@@ -10,6 +10,12 @@ signal summon_pressed(summon_id: String)
 signal recall_pressed
 signal option_hovered(description: String)
 
+const MENU_SCREEN_PADDING := 4.0
+const MENU_SCROLLBAR_WIDTH := 10.0
+
+var _panel: PanelContainer
+var _button_list: VBoxContainer
+var _scroll_container: ScrollContainer
 var _btn_move: Button
 var _btn_skill1: Button
 var _btn_skill2: Button
@@ -30,10 +36,13 @@ var _sync_action_used := false
 var _is_trainer_context := false
 
 func _ready() -> void:
-	$PanelContainer/VBoxContainer.add_theme_constant_override("separation", 1)
-	_btn_move = $PanelContainer/VBoxContainer/BtnMove
-	_btn_skill1 = $PanelContainer/VBoxContainer/BtnSkill
-	_btn_wait = $PanelContainer/VBoxContainer/BtnWait
+	_panel = $PanelContainer
+	_button_list = $PanelContainer/VBoxContainer
+	_setup_scroll_container()
+	_button_list.add_theme_constant_override("separation", 1)
+	_btn_move = _button_list.get_node("BtnMove")
+	_btn_skill1 = _button_list.get_node("BtnSkill")
+	_btn_wait = _button_list.get_node("BtnWait")
 	_btn_move.pressed.connect(
 		func(): emit_signal("move_pressed"))
 	_btn_skill1.pressed.connect(
@@ -61,7 +70,9 @@ func _ready() -> void:
 	_card_buttons["haste"] = _add_button("高速", "haste", func(): emit_signal("card_pressed", "haste"))
 	_card_buttons["shield"] = _add_button("护盾", "shield", func(): emit_signal("card_pressed", "shield"))
 	_card_buttons["power"] = _add_button("火力", "power", func(): emit_signal("card_pressed", "power"))
-	_card_buttons["capture"] = _add_button("封印", "capture", func(): emit_signal("card_pressed", "capture"))
+	_card_buttons["weak_mark"] = _add_button("标记", "weak_mark", func(): emit_signal("card_pressed", "weak_mark"))
+	_card_buttons["swap"] = _add_button("换位", "swap", func(): emit_signal("card_pressed", "swap"))
+	_card_buttons["calibrate"] = _add_button("校准", "calibrate", func(): emit_signal("card_pressed", "calibrate"))
 	_extract_buttons["fire"] = _add_button("提火", "extract_fire", func(): emit_signal("extract_pressed", "fire"))
 	_extract_buttons["grass"] = _add_button("提藤", "extract_grass", func(): emit_signal("extract_pressed", "grass"))
 	_extract_buttons["water"] = _add_button("提水", "extract_water", func(): emit_signal("extract_pressed", "water"))
@@ -76,8 +87,18 @@ func _add_button(label: String, key: String, callback: Callable) -> Button:
 	_style_button(button)
 	button.pressed.connect(callback)
 	_bind_hover(button, key)
-	$PanelContainer/VBoxContainer.add_child(button)
+	_button_list.add_child(button)
 	return button
+
+func _setup_scroll_container() -> void:
+	_panel.remove_child(_button_list)
+	_scroll_container = ScrollContainer.new()
+	_scroll_container.name = "ScrollContainer"
+	_scroll_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_scroll_container.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_panel.add_child(_scroll_container)
+	_scroll_container.add_child(_button_list)
+	_button_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
 func _bind_hover(button: Button, key: String) -> void:
 	button.mouse_entered.connect(func():
@@ -170,14 +191,31 @@ func _sync_context_visibility() -> void:
 func show_at(pixel_pos: Vector2) -> void:
 	visible = true
 	await get_tree().process_frame
-	var panel_size: Vector2 = $PanelContainer.get_combined_minimum_size()
 	var viewport_size: Vector2 = get_viewport_rect().size
+	await _fit_panel_to_viewport(viewport_size)
+	await get_tree().process_frame
+	var panel_size: Vector2 = _panel.size
 	var desired := pixel_pos + Vector2(4, -20)
-	var max_pos := viewport_size - panel_size - Vector2(4, 4)
+	var max_pos := viewport_size - panel_size - Vector2(MENU_SCREEN_PADDING, MENU_SCREEN_PADDING)
 	position = Vector2(
-		clamp(desired.x, 4.0, max_pos.x),
-		clamp(desired.y, 4.0, max_pos.y)
+		clamp(desired.x, MENU_SCREEN_PADDING, max(MENU_SCREEN_PADDING, max_pos.x)),
+		clamp(desired.y, MENU_SCREEN_PADDING, max(MENU_SCREEN_PADDING, max_pos.y))
 	)
 
 func hide_menu() -> void:
 	visible = false
+
+func _fit_panel_to_viewport(viewport_size: Vector2) -> void:
+	var content_size := _button_list.get_combined_minimum_size()
+	var max_scroll_height: float = max(48.0, viewport_size.y - MENU_SCREEN_PADDING * 2.0)
+	var scroll_height: float = min(content_size.y, max_scroll_height)
+	_scroll_container.custom_minimum_size = Vector2(
+		content_size.x + MENU_SCROLLBAR_WIDTH,
+		scroll_height
+	)
+	await get_tree().process_frame
+	var panel_min_size := _panel.get_combined_minimum_size()
+	_panel.size = Vector2(
+		panel_min_size.x,
+		min(panel_min_size.y, viewport_size.y - MENU_SCREEN_PADDING * 2.0)
+	)

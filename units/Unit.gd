@@ -20,8 +20,9 @@ var has_moved: bool = false   # 本回合是否已移动（每回合重置）
 var shield: int = 0
 var current_stability: int = 0
 var stability_depleted: bool = false
-var capture_ready: bool = false
 var power_boost_next_attack: bool = false
+var weak_marked: bool = false
+var calibrated_attack_type: int = Enums.ElementType.NONE
 var bonus_move_range: int = 0
 var last_attacker: Unit = null
 var ai_turn_count: int = 0
@@ -112,6 +113,9 @@ func clear_pending_charge_cells() -> void:
 func take_damage(raw_damage: int, attacker: Unit = null, attack_type: int = Enums.ElementType.NONE) -> int:
 	var actual: int = max(raw_damage - data.defense, 1)
 	actual = TypeChartUtil.apply_damage_multiplier(actual, attack_type, data.get_element_types())
+	if weak_marked:
+		actual = max(int(round(float(actual) * 1.5)), 1)
+		weak_marked = false
 	if shield > 0:
 		var blocked: int = min(shield, actual)
 		shield -= blocked
@@ -166,28 +170,22 @@ func damage_stability(amount: int) -> void:
 	_update_label()
 	emit_signal("status_changed", self)
 
-func is_capturable() -> bool:
-	return can_attempt_capture() and get_capture_chance() >= 1.0
-
-func can_attempt_capture() -> bool:
-	return data.unit_type == Enums.UnitType.WILD_POKEMON \
-		and is_alive()
-
-func get_capture_chance() -> float:
-	if not can_attempt_capture() or data.max_hp <= 0:
-		return 0.0
-	var hp_ratio := float(current_hp) / float(data.max_hp)
-	if hp_ratio <= 0.3:
-		return 1.0
-	var low_hp_progress := (1.0 - hp_ratio) / 0.7
-	return clamp(0.15 + low_hp_progress * 0.75, 0.15, 0.9)
-
-func set_capture_ready(value: bool) -> void:
-	capture_ready = value
+func set_weak_marked(value: bool) -> void:
+	weak_marked = value
 	_update_label()
 
 func set_power_boost(value: bool) -> void:
 	power_boost_next_attack = value
+	_update_label()
+
+func set_calibrated_attack_type(element_type: int) -> void:
+	calibrated_attack_type = element_type
+	_update_label()
+
+func consume_calibrated_attack_type() -> void:
+	if calibrated_attack_type == Enums.ElementType.NONE:
+		return
+	calibrated_attack_type = Enums.ElementType.NONE
 	_update_label()
 
 func restore_turn_snapshot(snapshot: Dictionary) -> void:
@@ -195,7 +193,6 @@ func restore_turn_snapshot(snapshot: Dictionary) -> void:
 	shield = snapshot["shield"]
 	current_stability = snapshot["current_stability"]
 	stability_depleted = snapshot["stability_depleted"]
-	capture_ready = snapshot["capture_ready"]
 	bonus_move_range = snapshot["bonus_move_range"]
 	_update_hp_bar()
 	_update_label()
@@ -211,10 +208,12 @@ func _update_label() -> void:
 		parts.append("属" + type_text)
 	if shield > 0:
 		parts.append("盾" + str(shield))
-	if capture_ready:
-		parts.append("可封印")
 	if power_boost_next_attack:
 		parts.append("强")
+	if weak_marked:
+		parts.append("弱")
+	if calibrated_attack_type != Enums.ElementType.NONE:
+		parts.append("校" + TypeChartUtil.get_type_name(calibrated_attack_type))
 	if bonus_move_range > 0:
 		parts.append("移+" + str(bonus_move_range))
 	if not pending_charge_cells.is_empty():
