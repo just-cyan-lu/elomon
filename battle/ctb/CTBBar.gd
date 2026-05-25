@@ -1,6 +1,8 @@
 extends Control
 
 const PREVIEW_COUNT := 6
+const AXIS_PANEL_SIZE := Vector2(286, 40)
+const BARS_PANEL_SIZE := Vector2(176, 150)
 
 enum ViewMode {
 	BARS,
@@ -11,7 +13,7 @@ var _bars: Dictionary = {}   # unit -> ProgressBar，动态追踪
 var _labels: Dictionary = {} # unit -> Label
 var _active_unit: Unit = null
 var _is_ctb_running: bool = false
-var _view_mode: int = ViewMode.BARS
+var _view_mode: int = ViewMode.AXIS
 var _bar_list: VBoxContainer
 var _axis_list: HBoxContainer
 var _toggle_button: Button
@@ -28,7 +30,7 @@ func _ready() -> void:
 func _build_background_panel() -> void:
 	_background_panel = PanelContainer.new()
 	_background_panel.position = Vector2(-4, -4)
-	_background_panel.size = Vector2(176, 150)
+	_background_panel.size = AXIS_PANEL_SIZE
 	_background_panel.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var style := StyleBoxFlat.new()
 	style.bg_color = Color(0.05, 0.055, 0.07, 0.80)
@@ -44,21 +46,21 @@ func _build_background_panel() -> void:
 
 func _build_view_toggle() -> void:
 	_toggle_button = Button.new()
-	_toggle_button.custom_minimum_size = Vector2(96, 18)
+	_toggle_button.position = Vector2(4, 4)
+	_toggle_button.custom_minimum_size = Vector2(58, 20)
 	_toggle_button.add_theme_font_size_override("font_size", 7)
 	_toggle_button.pressed.connect(_toggle_view_mode)
 	add_child(_toggle_button)
-	move_child(_toggle_button, 0)
-	_bar_list.position = Vector2(0, 20)
+	_bar_list.position = Vector2(4, 28)
 
 func _build_axis_view() -> void:
 	_axis_list = HBoxContainer.new()
-	_axis_list.position = Vector2(0, 22)
+	_axis_list.position = Vector2(68, 4)
 	_axis_list.add_theme_constant_override("separation", 2)
 	add_child(_axis_list)
 	for i in range(PREVIEW_COUNT):
 		var label := Label.new()
-		label.custom_minimum_size = Vector2(34, 32)
+		label.custom_minimum_size = Vector2(34, 30)
 		label.add_theme_font_size_override("font_size", 6)
 		label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 		label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
@@ -74,7 +76,9 @@ func _toggle_view_mode() -> void:
 
 func _apply_view_mode() -> void:
 	if _toggle_button != null:
-		_toggle_button.text = "视图:跑条" if _view_mode == ViewMode.BARS else "视图:行动轴"
+		_toggle_button.text = "跑条" if _view_mode == ViewMode.BARS else "行动轴"
+	if _background_panel != null:
+		_background_panel.size = BARS_PANEL_SIZE if _view_mode == ViewMode.BARS else AXIS_PANEL_SIZE
 	if _bar_list != null:
 		_bar_list.visible = _view_mode == ViewMode.BARS
 	if _axis_list != null:

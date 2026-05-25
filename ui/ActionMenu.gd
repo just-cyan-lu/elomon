@@ -11,10 +11,10 @@ signal recall_pressed
 signal option_hovered(description: String)
 
 const MENU_SCREEN_PADDING := 4.0
-const MENU_SCROLLBAR_WIDTH := 10.0
+const MENU_MAX_HEIGHT := 72.0
 
 var _panel: PanelContainer
-var _button_list: VBoxContainer
+var _button_list: Control
 var _scroll_container: ScrollContainer
 var _btn_move: Button
 var _btn_skill1: Button
@@ -41,6 +41,8 @@ func _ready() -> void:
 	_button_list = $PanelContainer/VBoxContainer
 	_setup_scroll_container()
 	_button_list.add_theme_constant_override("separation", 1)
+	_button_list.add_theme_constant_override("h_separation", 2)
+	_button_list.add_theme_constant_override("v_separation", 2)
 	_btn_move = _button_list.get_node("BtnMove")
 	_btn_skill1 = _button_list.get_node("BtnSkill")
 	_btn_wait = _button_list.get_node("BtnWait")
@@ -100,6 +102,7 @@ func _setup_scroll_container() -> void:
 	_panel.add_child(_scroll_container)
 	_scroll_container.add_child(_button_list)
 	_button_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_button_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
 
 func _style_panel(panel: PanelContainer) -> void:
 	var style := StyleBoxFlat.new()
@@ -123,7 +126,7 @@ func _bind_hover(button: Button, key: String) -> void:
 	)
 
 func _style_button(button: Button) -> void:
-	button.custom_minimum_size = Vector2(72, 18)
+	button.custom_minimum_size = Vector2(74, 20)
 	button.add_theme_font_size_override("font_size", 7)
 
 func set_skill_labels(skill_names: Array[String]) -> void:
@@ -203,35 +206,35 @@ func _sync_context_visibility() -> void:
 	if _btn_group_extract != null:
 		_btn_group_extract.text = "[提取]" if _trainer_group == "extract" else "提取"
 
-# 在指定像素位置显示菜单
-func show_at(pixel_pos: Vector2) -> void:
+# 固定在底部作为当前单位指令栏；参数保留给旧调用兼容。
+func show_at(_pixel_pos: Vector2) -> void:
 	visible = true
 	await get_tree().process_frame
 	var viewport_size: Vector2 = get_viewport_rect().size
 	await _fit_panel_to_viewport(viewport_size)
 	await get_tree().process_frame
-	var panel_size: Vector2 = _panel.size
-	var desired := pixel_pos + Vector2(4, -20)
-	var max_pos := viewport_size - panel_size - Vector2(MENU_SCREEN_PADDING, MENU_SCREEN_PADDING)
 	position = Vector2(
-		clamp(desired.x, MENU_SCREEN_PADDING, max(MENU_SCREEN_PADDING, max_pos.x)),
-		clamp(desired.y, MENU_SCREEN_PADDING, max(MENU_SCREEN_PADDING, max_pos.y))
+		MENU_SCREEN_PADDING,
+		viewport_size.y - _panel.size.y - MENU_SCREEN_PADDING
 	)
 
 func hide_menu() -> void:
 	visible = false
 
 func _fit_panel_to_viewport(viewport_size: Vector2) -> void:
+	var menu_width: float = max(240.0, viewport_size.x - MENU_SCREEN_PADDING * 2.0)
+	var content_width: float = max(220.0, menu_width - 14.0)
+	_button_list.custom_minimum_size = Vector2(content_width, _button_list.custom_minimum_size.y)
+	_button_list.size = Vector2(content_width, _button_list.size.y)
+	await get_tree().process_frame
 	var content_size := _button_list.get_combined_minimum_size()
-	var max_scroll_height: float = max(48.0, viewport_size.y - MENU_SCREEN_PADDING * 2.0)
-	var scroll_height: float = min(content_size.y, max_scroll_height)
+	var scroll_height: float = clamp(content_size.y, 28.0, MENU_MAX_HEIGHT)
 	_scroll_container.custom_minimum_size = Vector2(
-		content_size.x + MENU_SCROLLBAR_WIDTH,
+		content_width,
 		scroll_height
 	)
 	await get_tree().process_frame
-	var panel_min_size := _panel.get_combined_minimum_size()
 	_panel.size = Vector2(
-		panel_min_size.x,
-		min(panel_min_size.y, viewport_size.y - MENU_SCREEN_PADDING * 2.0)
+		menu_width,
+		min(scroll_height + 8.0, viewport_size.y - MENU_SCREEN_PADDING * 2.0)
 	)

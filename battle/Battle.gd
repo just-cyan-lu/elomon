@@ -14,6 +14,10 @@ const RESOURCE_EVENT_LIMIT := 120
 const NO_SKILL_AP_COST := 50.0
 const SYNC_NATURAL_CAP := 100
 const STARTING_POKEMON_LIMIT := 2
+const UI_MARGIN := 4.0
+const RIGHT_DRAWER_X := 452.0
+const RIGHT_DRAWER_WIDTH := 184.0
+const SYNC_FEEDBACK_POS := Vector2(386, 48)
 const POKEMON_IDS := ["fire", "grass", "water", "electric", "ice"]
 const CARD_DEFS := {
 	"haste": {"name": "高速组件", "cost": 30, "cooldown": 2, "effect": "目标宝可梦下一次移动距离 +2，移动后消耗。"},
@@ -81,6 +85,8 @@ var _briefing_panel: PanelContainer
 var _result_panel: PanelContainer
 var _log_panel: PanelContainer
 var _log_label: RichTextLabel
+var _log_toggle_button: Button
+var _log_drawer_open := false
 var _card_cooldowns := {}
 var _selected_skill_target: Vector2i = Vector2i(-1, -1)
 var _skill_preview_entries: Array[Dictionary] = []
@@ -143,16 +149,19 @@ func _style_ui_panel(panel: PanelContainer, fill_color: Color = Color(0.055, 0.0
 	panel.add_theme_stylebox_override("panel", style)
 
 func _build_mvp_ui() -> void:
-	_sync_panel = _make_ui_panel(Vector2(214, 2), Vector2(276, 84))
+	ctb_bar.position = Vector2(UI_MARGIN, UI_MARGIN)
+
+	_sync_panel = _make_ui_panel(Vector2(294, 4), Vector2(238, 40))
 	$UI.add_child(_sync_panel)
 	_sync_label = Label.new()
-	_sync_label.position = Vector2(6, 4)
-	_sync_label.size = Vector2(264, 76)
-	_sync_label.add_theme_font_size_override("font_size", 8)
+	_sync_label.position = Vector2(6, 3)
+	_sync_label.size = Vector2(226, 34)
+	_sync_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_sync_label.add_theme_font_size_override("font_size", 7)
 	_sync_label.add_theme_color_override("font_color", Color(0.55, 0.82, 1.0, 1.0))
 	_sync_panel.add_child(_sync_label)
 
-	_sync_feedback_panel = _make_ui_panel(Vector2(490, 4), Vector2(144, 24), Color(0.07, 0.12, 0.14, 0.72), Color(0.25, 0.55, 0.62, 0.55))
+	_sync_feedback_panel = _make_ui_panel(SYNC_FEEDBACK_POS, Vector2(146, 24), Color(0.07, 0.12, 0.14, 0.72), Color(0.25, 0.55, 0.62, 0.55))
 	_sync_feedback_panel.visible = false
 	$UI.add_child(_sync_feedback_panel)
 	_sync_feedback_label = Label.new()
@@ -163,26 +172,34 @@ func _build_mvp_ui() -> void:
 	_sync_feedback_label.visible = false
 	_sync_feedback_panel.add_child(_sync_feedback_label)
 
-	_tip_panel = _make_ui_panel(Vector2(216, 86), Vector2(392, 68), Color(0.08, 0.08, 0.10, 0.78), Color(0.45, 0.50, 0.62, 0.44))
+	_tip_panel = _make_ui_panel(Vector2(4, 236), Vector2(444, 36), Color(0.08, 0.08, 0.10, 0.78), Color(0.45, 0.50, 0.62, 0.44))
 	$UI.add_child(_tip_panel)
 	_tip_label = Label.new()
-	_tip_label.position = Vector2(6, 4)
-	_tip_label.size = Vector2(380, 60)
+	_tip_label.position = Vector2(6, 3)
+	_tip_label.size = Vector2(432, 30)
 	_tip_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_tip_label.add_theme_font_size_override("font_size", 8)
 	_tip_panel.add_child(_tip_label)
 
 	_enemy_threat_button = Button.new()
-	_enemy_threat_button.position = Vector2(548, 34)
-	_enemy_threat_button.size = Vector2(86, 20)
+	_enemy_threat_button.position = Vector2(536, 5)
+	_enemy_threat_button.size = Vector2(100, 20)
 	_enemy_threat_button.text = "敌方范围"
 	_enemy_threat_button.add_theme_font_size_override("font_size", 8)
 	_enemy_threat_button.pressed.connect(_toggle_enemy_threat)
 	$UI.add_child(_enemy_threat_button)
 
+	_log_toggle_button = Button.new()
+	_log_toggle_button.position = Vector2(536, 27)
+	_log_toggle_button.size = Vector2(100, 18)
+	_log_toggle_button.text = "日志"
+	_log_toggle_button.add_theme_font_size_override("font_size", 8)
+	_log_toggle_button.pressed.connect(_toggle_log_drawer)
+	$UI.add_child(_log_toggle_button)
+
 	_preview_panel = PanelContainer.new()
-	_preview_panel.position = Vector2(418, 156)
-	_preview_panel.size = Vector2(216, 170)
+	_preview_panel.position = Vector2(RIGHT_DRAWER_X, 50)
+	_preview_panel.size = Vector2(RIGHT_DRAWER_WIDTH, 214)
 	_preview_panel.visible = false
 	_style_ui_panel(_preview_panel)
 	$UI.add_child(_preview_panel)
@@ -190,7 +207,7 @@ func _build_mvp_ui() -> void:
 	preview_box.add_theme_constant_override("separation", 3)
 	_preview_panel.add_child(preview_box)
 	_preview_label = Label.new()
-	_preview_label.custom_minimum_size = Vector2(204, 118)
+	_preview_label.custom_minimum_size = Vector2(172, 158)
 	_preview_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_preview_label.add_theme_font_size_override("font_size", 8)
 	preview_box.add_child(_preview_label)
@@ -199,20 +216,21 @@ func _build_mvp_ui() -> void:
 	preview_box.add_child(button_row)
 	var confirm_button := Button.new()
 	confirm_button.text = "确认"
-	confirm_button.custom_minimum_size = Vector2(72, 20)
+	confirm_button.custom_minimum_size = Vector2(64, 20)
 	confirm_button.add_theme_font_size_override("font_size", 8)
 	confirm_button.pressed.connect(_confirm_skill_preview)
 	button_row.add_child(confirm_button)
 	var cancel_button := Button.new()
 	cancel_button.text = "取消"
-	cancel_button.custom_minimum_size = Vector2(72, 20)
+	cancel_button.custom_minimum_size = Vector2(64, 20)
 	cancel_button.add_theme_font_size_override("font_size", 8)
 	cancel_button.pressed.connect(_return_to_skill_selection)
 	button_row.add_child(cancel_button)
 
 	_log_panel = PanelContainer.new()
-	_log_panel.position = Vector2(430, 220)
-	_log_panel.size = Vector2(204, 134)
+	_log_panel.position = Vector2(RIGHT_DRAWER_X, 50)
+	_log_panel.size = Vector2(RIGHT_DRAWER_WIDTH, 214)
+	_log_panel.visible = false
 	_style_ui_panel(_log_panel, Color(0.055, 0.06, 0.075, 0.86), Color(0.35, 0.40, 0.48, 0.45))
 	$UI.add_child(_log_panel)
 	var log_box := VBoxContainer.new()
@@ -226,10 +244,11 @@ func _build_mvp_ui() -> void:
 	_log_label.bbcode_enabled = true
 	_log_label.fit_content = false
 	_log_label.scroll_following = true
-	_log_label.custom_minimum_size = Vector2(194, 108)
+	_log_label.custom_minimum_size = Vector2(172, 186)
 	_log_label.add_theme_font_size_override("normal_font_size", 7)
 	_log_label.add_theme_color_override("default_color", Color(0.86, 0.88, 0.9, 1.0))
 	log_box.add_child(_log_label)
+	_update_log_drawer_button()
 
 func _build_prep_panel() -> void:
 	_prep_panel = PanelContainer.new()
@@ -1655,14 +1674,15 @@ func _update_sync_ui() -> void:
 	var natural_gain_text := "自然+%d" % _get_natural_sync_gain_amount()
 	if _sync_points >= SYNC_NATURAL_CAP:
 		natural_gain_text = "自然暂停"
-	_sync_label.text = "同步率 %d  自然上限%d\n形态 %s  宝%d 后备 %s\n获得: %s 训攻+8 宝攻+5\n冷却 %s" % [
+	var cooldown_summary := "无"
+	if cooldown_text.size() > 0:
+		cooldown_summary = "%d项" % cooldown_text.size()
+	_sync_label.text = "同步率 %d  %s  CD:%s\n形态 %s  后备:%s" % [
 		_sync_points,
-		SYNC_NATURAL_CAP,
-		trainer_form,
-		_active_pokemon_count(),
-		_get_reserve_summary(),
 		natural_gain_text,
-		_join_strings(cooldown_text, "、") if cooldown_text.size() > 0 else "无"
+		cooldown_summary,
+		trainer_form,
+		_get_reserve_short_summary()
 	]
 
 func _show_sync_feedback(amount: int, reason: String) -> void:
@@ -1678,12 +1698,12 @@ func _show_sync_feedback(amount: int, reason: String) -> void:
 	else:
 		_sync_feedback_label.add_theme_color_override("font_color", Color(1.0, 0.78, 0.5, 1.0))
 	_sync_feedback_panel.modulate.a = 1.0
-	_sync_feedback_panel.position = Vector2(490, 4)
+	_sync_feedback_panel.position = SYNC_FEEDBACK_POS
 	_sync_feedback_panel.visible = true
 	_sync_feedback_label.position = Vector2(4, 2)
 	_sync_feedback_label.visible = true
 	var tween := create_tween()
-	tween.tween_property(_sync_feedback_panel, "position:y", -8.0, 0.55)
+	tween.tween_property(_sync_feedback_panel, "position:y", SYNC_FEEDBACK_POS.y - 12.0, 0.55)
 	tween.parallel().tween_property(_sync_feedback_panel, "modulate:a", 0.0, 0.55)
 	tween.tween_callback(func():
 		_sync_feedback_panel.visible = false
@@ -1754,6 +1774,25 @@ func _refresh_battle_log_ui() -> void:
 		])
 	_log_label.clear()
 	_log_label.append_text(_join_strings(lines, "\n"))
+	_update_log_drawer_button()
+
+func _toggle_log_drawer() -> void:
+	_log_drawer_open = not _log_drawer_open
+	_update_log_drawer_visibility()
+
+func _update_log_drawer_visibility() -> void:
+	if is_instance_valid(_log_panel):
+		var preview_open := is_instance_valid(_preview_panel) and _preview_panel.visible
+		_log_panel.visible = _log_drawer_open and not preview_open
+	_update_log_drawer_button()
+
+func _update_log_drawer_button() -> void:
+	if not is_instance_valid(_log_toggle_button):
+		return
+	if _log_drawer_open:
+		_log_toggle_button.text = "隐藏日志"
+	else:
+		_log_toggle_button.text = "日志 %d" % _battle_logs.size()
 
 func _render_log_text(text: String, unit_refs: Array) -> String:
 	var rendered := _escape_bbcode(text)
@@ -1872,6 +1911,20 @@ func _get_reserve_summary() -> String:
 		and display_name == str(EXTRACT_DEFS[_trainer_extract_id]["reserve"]):
 			display_name += "(同步)"
 		names.append(display_name)
+	names.sort()
+	return _join_strings(names, "、")
+
+func _get_reserve_short_summary() -> String:
+	if _reserve_units.is_empty():
+		return "无"
+	var names: Array[String] = []
+	for reserve_name in _reserve_units.keys():
+		var display_name := str(reserve_name)
+		var short_name := display_name.substr(0, 1)
+		if EXTRACT_DEFS.has(_trainer_extract_id) \
+		and display_name == str(EXTRACT_DEFS[_trainer_extract_id]["reserve"]):
+			short_name += "*"
+		names.append(short_name)
 	names.sort()
 	return _join_strings(names, "、")
 
@@ -2436,6 +2489,7 @@ func _show_preview_area(skill: SkillData, target_pos: Vector2i) -> void:
 func _show_preview_panel(attacker: Unit, skill: SkillData, entries: Array[Dictionary]) -> void:
 	if is_instance_valid(_log_panel):
 		_log_panel.visible = false
+	_update_log_drawer_button()
 	var total_damage := 0
 	var lines: Array[String] = []
 	lines.append("%s -> %s" % [attacker.data.unit_name, skill.skill_name])
@@ -2516,8 +2570,7 @@ func _show_preview_markers(entries: Array[Dictionary]) -> void:
 func _clear_skill_preview() -> void:
 	if is_instance_valid(_preview_panel):
 		_preview_panel.visible = false
-	if is_instance_valid(_log_panel):
-		_log_panel.visible = true
+	_update_log_drawer_visibility()
 	_clear_preview_markers()
 	_current_action_preview.clear()
 	emit_signal("action_preview_updated", _current_action_preview)
