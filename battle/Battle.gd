@@ -18,6 +18,7 @@ const UI_MARGIN := 4.0
 const RIGHT_DRAWER_X := 452.0
 const RIGHT_DRAWER_WIDTH := 184.0
 const SYNC_FEEDBACK_POS := Vector2(386, 48)
+const UNIT_HOVER_SIZE := Vector2(174, 102)
 const POKEMON_IDS := ["fire", "grass", "water", "electric", "ice"]
 const CARD_DEFS := {
 	"haste": {"name": "高速组件", "cost": 30, "cooldown": 2, "effect": "目标宝可梦下一次移动距离 +2，移动后消耗。"},
@@ -87,6 +88,8 @@ var _log_panel: PanelContainer
 var _log_label: RichTextLabel
 var _log_toggle_button: Button
 var _log_drawer_open := false
+var _unit_hover_panel: PanelContainer
+var _unit_hover_label: Label
 var _card_cooldowns := {}
 var _last_tip_text := ""
 var _selected_skill_target: Vector2i = Vector2i(-1, -1)
@@ -124,6 +127,9 @@ func _ready() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_cancel"):
 		_cancel_current_selection()
+
+func _process(_delta: float) -> void:
+	_update_unit_hover_card()
 
 # ── 初始化 ──────────────────────────────────────────────────────
 
@@ -251,6 +257,17 @@ func _build_mvp_ui() -> void:
 	_log_label.add_theme_color_override("default_color", Color(0.86, 0.88, 0.9, 1.0))
 	log_box.add_child(_log_label)
 	_update_log_drawer_button()
+
+	_unit_hover_panel = _make_ui_panel(Vector2.ZERO, UNIT_HOVER_SIZE, Color(0.052, 0.058, 0.074, 0.92), Color(0.42, 0.50, 0.64, 0.60))
+	_unit_hover_panel.visible = false
+	$UI.add_child(_unit_hover_panel)
+	_unit_hover_label = Label.new()
+	_unit_hover_label.position = Vector2(6, 4)
+	_unit_hover_label.size = Vector2(UNIT_HOVER_SIZE.x - 12.0, UNIT_HOVER_SIZE.y - 8.0)
+	_unit_hover_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_unit_hover_label.add_theme_font_size_override("font_size", 7)
+	_unit_hover_label.add_theme_color_override("font_color", Color(0.88, 0.90, 0.94, 1.0))
+	_unit_hover_panel.add_child(_unit_hover_label)
 
 func _build_prep_panel() -> void:
 	_prep_panel = PanelContainer.new()
@@ -631,6 +648,8 @@ func _make_skill(
 func _connect_signals() -> void:
 	ctb_system.unit_ready.connect(_on_unit_ready)
 	ctb_system.running_changed.connect(ctb_bar.set_ctb_state)
+	ctb_bar.token_hovered.connect(_show_transient_tip)
+	ctb_bar.token_hover_ended.connect(_restore_last_tip)
 	grid_manager.cell_clicked.connect(_on_cell_clicked)
 	action_menu.move_pressed.connect(_on_move_pressed)
 	action_menu.skill_pressed.connect(func(): _on_skill_pressed(0))
@@ -1937,6 +1956,9 @@ func _get_trainer_form_summary() -> String:
 
 func _show_tip(text: String) -> void:
 	_last_tip_text = text
+	_show_transient_tip(text)
+
+func _show_transient_tip(text: String) -> void:
 	if is_instance_valid(action_menu) and action_menu.visible:
 		action_menu.set_description(text)
 		if is_instance_valid(_tip_panel):
@@ -1946,6 +1968,122 @@ func _show_tip(text: String) -> void:
 		_tip_label.text = text
 	if is_instance_valid(_tip_panel):
 		_tip_panel.visible = text != ""
+
+func _restore_last_tip() -> void:
+	_show_transient_tip(_last_tip_text)
+
+func _update_unit_hover_card() -> void:
+	if not is_instance_valid(_unit_hover_panel) or not is_instance_valid(_unit_hover_label):
+		return
+	if not is_instance_valid(grid_manager):
+		_unit_hover_panel.visible = false
+		return
+	var mouse_pos := get_viewport().get_mouse_position()
+	if _is_mouse_over_battle_ui(mouse_pos):
+		_unit_hover_panel.visible = false
+		return
+	var grid_pos := grid_manager.world_to_grid(grid_manager.to_local(mouse_pos))
+	if not grid_manager.is_valid(grid_pos):
+		_unit_hover_panel.visible = false
+		return
+	var unit := grid_manager.get_unit_at(grid_pos)
+	if unit == null or not is_instance_valid(unit) or not unit.is_alive():
+		_unit_hover_panel.visible = false
+		return
+	_unit_hover_label.text = _build_unit_hover_text(unit)
+	_position_unit_hover_panel(mouse_pos)
+	_unit_hover_panel.visible = true
+
+func _is_mouse_over_battle_ui(mouse_pos: Vector2) -> bool:
+	var viewport_size := get_viewport().get_visible_rect().size
+	if is_instance_valid(action_menu) and action_menu.visible and mouse_pos.y >= viewport_size.y - 92.0:
+		return true
+	if Rect2(ctb_bar.position, Vector2(292, 50)).has_point(mouse_pos):
+		return true
+	var controls: Array[Control] = [
+		_sync_panel,
+		_sync_feedback_panel,
+		_tip_panel,
+		_enemy_threat_button,
+		_log_toggle_button,
+		_preview_panel,
+		_log_panel,
+		_prep_panel,
+		_briefing_panel,
+		_result_panel
+	]
+	for control in controls:
+		if _control_contains_screen_pos(control, mouse_pos):
+			return true
+	return false
+
+func _control_contains_screen_pos(control: Control, screen_pos: Vector2) -> bool:
+	return control != null \
+		and is_instance_valid(control) \
+		and control.visible \
+		and control.get_global_rect().has_point(screen_pos)
+
+func _position_unit_hover_panel(mouse_pos: Vector2) -> void:
+	var viewport_size := get_viewport().get_visible_rect().size
+	var pos := mouse_pos + Vector2(12, 12)
+	pos.x = clampf(pos.x, UI_MARGIN, viewport_size.x - UNIT_HOVER_SIZE.x - UI_MARGIN)
+	pos.y = clampf(pos.y, UI_MARGIN, viewport_size.y - UNIT_HOVER_SIZE.y - UI_MARGIN)
+	_unit_hover_panel.position = pos
+
+func _build_unit_hover_text(unit: Unit) -> String:
+	var lines: Array[String] = [
+		"%s（%s）" % [unit.data.unit_name, _get_unit_side_label(unit)],
+		"属性 %s  HP %d/%d  AP %d/%d" % [
+			TypeChartUtil.get_type_names(unit.data.get_element_types()),
+			unit.current_hp,
+			unit.data.max_hp,
+			int(round(unit.current_ap)),
+			Enums.MAX_AP
+		],
+		"速度 %d  移动 %d  防御 %d" % [
+			int(round(unit.data.speed)),
+			unit.get_current_move_range(),
+			unit.data.defense
+		],
+		"技能 %s" % _get_unit_skill_summary(unit)
+	]
+	var status_text := _get_unit_status_summary(unit)
+	if status_text != "":
+		lines.append("状态 " + status_text)
+	return _join_strings(lines, "\n")
+
+func _get_unit_skill_summary(unit: Unit) -> String:
+	if unit.data.skills.is_empty():
+		return "无"
+	var names: Array[String] = []
+	for skill_resource in unit.data.skills:
+		var skill: SkillData = skill_resource
+		var area_text := ""
+		if skill.area_radius > 0:
+			area_text = " 范%d" % skill.area_radius
+		names.append("%s[%s R%d%s]" % [
+			skill.skill_name,
+			TypeChartUtil.get_type_name(skill.element_type),
+			skill.atk_range,
+			area_text
+		])
+	return _join_strings(names, " / ")
+
+func _get_unit_status_summary(unit: Unit) -> String:
+	var statuses: Array[String] = []
+	if unit.shield > 0:
+		statuses.append("%s%d" % [StatusTypeUtil.get_short(StatusTypeUtil.StatusId.SHIELD), unit.shield])
+	if unit.power_boost_next_attack:
+		statuses.append(StatusTypeUtil.get_short(StatusTypeUtil.StatusId.POWER_BOOST))
+	if unit.weak_marked:
+		statuses.append(StatusTypeUtil.get_short(StatusTypeUtil.StatusId.WEAK_MARK))
+	if unit.calibrated_attack_type != Enums.ElementType.NONE:
+		statuses.append("校" + TypeChartUtil.get_type_name(unit.calibrated_attack_type))
+	if unit.bonus_move_range > 0:
+		statuses.append("移+%d" % unit.bonus_move_range)
+	if not unit.pending_charge_cells.is_empty():
+		statuses.append(StatusTypeUtil.get_short(StatusTypeUtil.StatusId.CHARGE_WARNING))
+	return _join_strings(statuses, "、")
 
 func _save_turn_start_state(unit: Unit) -> void:
 	if unit == null or not is_instance_valid(unit):

@@ -1,5 +1,8 @@
 extends Control
 
+signal token_hovered(description: String)
+signal token_hover_ended
+
 const PREVIEW_COUNT := 6
 const AXIS_PANEL_SIZE := Vector2(286, 44)
 const BARS_PANEL_SIZE := Vector2(286, 44)
@@ -92,8 +95,10 @@ func _make_token() -> Button:
 	token.custom_minimum_size = TOKEN_SIZE
 	token.size = TOKEN_SIZE
 	token.focus_mode = Control.FOCUS_NONE
-	token.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	token.mouse_filter = Control.MOUSE_FILTER_STOP
 	token.add_theme_font_size_override("font_size", 8)
+	token.mouse_entered.connect(func(): _emit_token_hover(token))
+	token.mouse_exited.connect(func(): emit_signal("token_hover_ended"))
 	return token
 
 func _toggle_view_mode() -> void:
@@ -164,6 +169,7 @@ func _refresh_axis(next_unit: Unit = null) -> void:
 		var y: float = 2.0 if i % 2 == 0 else 14.0
 		token.position = Vector2(x, y)
 		token.text = _avatar_letter(unit)
+		token.set_meta("hover_text", _build_hover_text(unit, _get_prediction_index(unit)))
 		_style_token(token, unit, unit == _active_unit, unit == next_unit)
 
 func _refresh_order() -> void:
@@ -179,6 +185,7 @@ func _refresh_order() -> void:
 		var slot_ratio := 1.0 - float(i) / denominator
 		token.position = Vector2(slot_ratio * (TRACK_SIZE.x - TOKEN_SIZE.x), 5.0)
 		token.text = _avatar_letter(unit)
+		token.set_meta("hover_text", _build_hover_text(unit, i + 1))
 		_style_token(token, unit, i == 0 and unit == _active_unit, i == 0)
 
 func _get_next_predicted_unit() -> Unit:
@@ -216,6 +223,13 @@ func _predict_action_order(count: int) -> Array[Dictionary]:
 		sim_ap[next_unit] = max(float(sim_ap[next_unit]) - Enums.MAX_AP, 0.0)
 	return result
 
+func _get_prediction_index(unit: Unit) -> int:
+	var order := _predict_action_order(PREVIEW_COUNT)
+	for i in range(order.size()):
+		if order[i]["unit"] == unit:
+			return i + 1
+	return -1
+
 func _get_alive_units() -> Array[Unit]:
 	var result: Array[Unit] = []
 	for unit in _units:
@@ -237,6 +251,33 @@ func _style_token(token: Button, unit: Unit, active: bool = false, next: bool = 
 	token.add_theme_stylebox_override("hover", style)
 	token.add_theme_stylebox_override("pressed", style)
 	token.add_theme_color_override("font_color", Color(0.05, 0.06, 0.08, 1.0))
+
+func _emit_token_hover(token: Button) -> void:
+	var description := str(token.get_meta("hover_text", ""))
+	if description != "":
+		emit_signal("token_hovered", description)
+
+func _build_hover_text(unit: Unit, predicted_rank: int) -> String:
+	var status := "行动中" if unit == _active_unit else ("暂停中" if not _is_ctb_running else "等待中")
+	var rank_text := "预计较后行动"
+	if predicted_rank > 0:
+		rank_text = "预计第 %d 位行动" % predicted_rank
+	return "%s（%s） AP %d/%d，速度 %d，%s，%s。" % [
+		unit.data.unit_name,
+		_get_unit_side_text(unit),
+		int(round(unit.current_ap)),
+		Enums.MAX_AP,
+		int(round(unit.data.speed)),
+		status,
+		rank_text
+	]
+
+func _get_unit_side_text(unit: Unit) -> String:
+	if unit.is_ally():
+		return "我方"
+	if unit.data.unit_type == Enums.UnitType.WILD_POKEMON:
+		return "中立"
+	return "敌方"
 
 func _get_unit_color(unit: Unit) -> Color:
 	if unit == _active_unit:
