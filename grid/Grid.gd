@@ -131,7 +131,15 @@ func setup_mvp_terrain(level_id: String = "level1") -> void:
 		for x in Enums.GRID_COLS:
 			set_terrain(Vector2i(x, y), Enums.TerrainType.NORMAL)
 	if level_id == "level2":
-		for pos in [Vector2i(7, 7), Vector2i(8, 8), Vector2i(7, 9), Vector2i(10, 8)]:
+		var flank_markers := [
+			Vector2i(7, 5),
+			Vector2i(8, 5),
+			Vector2i(7, 11),
+			Vector2i(8, 11),
+			Vector2i(9, 8),
+			Vector2i(10, 8)
+		]
+		for pos in flank_markers:
 			set_terrain(pos, Enums.TerrainType.GRASS)
 		return
 	for y in range(7, 11):

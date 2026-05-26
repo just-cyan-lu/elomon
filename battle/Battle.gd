@@ -34,7 +34,7 @@ const LEVEL_DEFS := {
 	LEVEL_2_ID: {
 		"name": "第二样板战：侧翼压制测试",
 		"short": "第二战",
-		"summary": "地属性 Boss 与水/飞/地侧翼，验证移动压制和属性选择。",
+		"summary": "中路地属性 Boss 牵制，上下侧翼远程施压，验证移动压制和属性选择。",
 		"default_pokemon": ["grass", "electric"],
 		"default_extract": "water"
 	}
@@ -618,6 +618,9 @@ func _spawn_units() -> void:
 	var boss_skill := _make_skill("重踏", 10, 1, 100, Enums.ElementType.GRASS, 10, false, 0, SkillData.EffectType.DAMAGE, "厚血压场", "草属性近战。")
 	var rock_stomp_skill := _make_skill("岩踏", 10, 1, 100, Enums.ElementType.GROUND, 10, false, 0, SkillData.EffectType.DAMAGE, "厚血压场", "地属性近战。")
 	var grass_thorn_skill := _make_skill("藤刺", 22, 1, 100, Enums.ElementType.GRASS, 10, false, 0, SkillData.EffectType.DAMAGE, "近战", "草属性近战。")
+	var side_water_skill := _make_skill("水压线", 16, 4, 100, Enums.ElementType.WATER, 8, false, 0, SkillData.EffectType.DAMAGE, "长射程侧翼", "射程更长、伤害较低的水属性远程。")
+	var wing_wind_skill := _make_skill("掠风", 18, 3, 100, Enums.ElementType.FLYING, 10, false, 0, SkillData.EffectType.DAMAGE, "侧翼猎手", "飞属性远程，优先压低血和后排。")
+	var thorn_snare_skill := _make_skill("藤缚刺", 16, 2, 100, Enums.ElementType.GRASS, 10, true, 0, SkillData.EffectType.DAMAGE, "侧翼控制", "草属性中程，命中后移动-1。", 1)
 	
 	var fire_data := _make_unit_data("火狐兽", Enums.UnitType.PLAYER_POKEMON, 105, 18, 5, 58, 4, Color(0.95, 0.42, 0.18), Enums.ElementType.FIRE, [fire_skill, flame_line])
 	_set_unit_content(fire_data, "火系爆发 / 范围", "火花为标准行动；烈焰爆为范围重招，下次行动推后 20%。")
@@ -658,7 +661,7 @@ func _spawn_units() -> void:
 			_reserve_units[reserve_data.unit_name] = reserve_data
 	_apply_trainer_extract(_prep_extract_id)
 	if _selected_level_id == LEVEL_2_ID:
-		_spawn_level2_enemies(unit_scene, ground_skill, rock_stomp_skill, water_dart_skill, wind_skill, grass_thorn_skill)
+		_spawn_level2_enemies(unit_scene, ground_skill, rock_stomp_skill, side_water_skill, wing_wind_skill, thorn_snare_skill)
 	else:
 		_spawn_level1_enemies(unit_scene, fire_bite_skill, grass_bite_skill, water_dart_skill, wind_skill, ground_skill, boss_skill)
 
@@ -704,30 +707,30 @@ func _spawn_level2_enemies(
 	wind_skill: SkillData,
 	grass_thorn_skill: SkillData
 ) -> void:
-	var ground_enemy := _make_unit_data("地壳小怪", Enums.UnitType.ENEMY, 88, 12, 5, 28, 3, Color(0.62, 0.50, 0.34), Enums.ElementType.GROUND, [ground_skill])
-	_set_unit_content(ground_enemy, "地系前排", "防御较高的中程敌人。")
+	var ground_enemy := _make_unit_data("地壳小怪", Enums.UnitType.ENEMY, 92, 12, 6, 28, 3, Color(0.62, 0.50, 0.34), Enums.ElementType.GROUND, [ground_skill])
+	_set_unit_content(ground_enemy, "中线守卫", "防御较高的地属性中程敌人，会反制雷/火。")
 	ground_enemy.ai_profile = Enums.AIProfile.GUARDIAN
 	var boss_data := _make_unit_data("岩脊巨兽", Enums.UnitType.WILD_POKEMON, 260, 8, 8, 22, 2, Color(0.58, 0.50, 0.36), Enums.ElementType.GROUND, [rock_stomp_skill], 0, true, 3, 18, 5, 1)
 	_set_unit_content(boss_data, "厚血大怪", "地属性厚血 Boss，会低频蓄力压迫站位。")
 	boss_data.ai_profile = Enums.AIProfile.AREA
-	var water_enemy_a := _make_unit_data("水针小怪A", Enums.UnitType.ENEMY, 62, 11, 2, 40, 3, Color(0.34, 0.48, 0.82), Enums.ElementType.WATER, [water_dart_skill])
-	_set_unit_content(water_enemy_a, "水系远程", "水属性远程敌人。")
+	var water_enemy_a := _make_unit_data("上翼水针", Enums.UnitType.ENEMY, 64, 10, 2, 40, 3, Color(0.34, 0.48, 0.82), Enums.ElementType.WATER, [water_dart_skill])
+	_set_unit_content(water_enemy_a, "上翼远程", "长射程水属性侧翼敌人，适合用雷属性快速处理。")
 	water_enemy_a.ai_profile = Enums.AIProfile.ELEMENTAL
-	var water_enemy_b := _make_unit_data("水针小怪B", Enums.UnitType.ENEMY, 62, 11, 2, 40, 3, Color(0.34, 0.48, 0.82), Enums.ElementType.WATER, [water_dart_skill])
-	_set_unit_content(water_enemy_b, "水系远程", "水属性远程敌人。")
+	var water_enemy_b := _make_unit_data("下翼水针", Enums.UnitType.ENEMY, 64, 10, 2, 40, 3, Color(0.34, 0.48, 0.82), Enums.ElementType.WATER, [water_dart_skill])
+	_set_unit_content(water_enemy_b, "下翼远程", "长射程水属性侧翼敌人，适合用雷属性快速处理。")
 	water_enemy_b.ai_profile = Enums.AIProfile.ELEMENTAL
-	var wind_enemy := _make_unit_data("飞羽小怪", Enums.UnitType.ENEMY, 58, 10, 2, 52, 5, Color(0.64, 0.66, 0.86), Enums.ElementType.FLYING, [wind_skill])
-	_set_unit_content(wind_enemy, "飞系远程", "高机动远程敌人。")
+	var wind_enemy := _make_unit_data("飞羽小怪", Enums.UnitType.ENEMY, 60, 10, 2, 52, 5, Color(0.64, 0.66, 0.86), Enums.ElementType.FLYING, [wind_skill])
+	_set_unit_content(wind_enemy, "上翼猎手", "高机动飞属性远程，会给草属性和低血单位压力。")
 	wind_enemy.ai_profile = Enums.AIProfile.HUNTER
 	var grass_enemy := _make_unit_data("藤刺小怪", Enums.UnitType.ENEMY, 70, 12, 3, 34, 4, Color(0.82, 0.36, 0.28), Enums.ElementType.GRASS, [grass_thorn_skill])
-	_set_unit_content(grass_enemy, "草系近战", "草属性近战敌人。")
+	_set_unit_content(grass_enemy, "下翼控制", "草属性中程控制，会压制水属性和下次移动。")
 	grass_enemy.ai_profile = Enums.AIProfile.ELEMENTAL
 	_spawn_unit(unit_scene, ground_enemy, Vector2i(9, 8))
 	_spawn_unit(unit_scene, boss_data, Vector2i(14, 8))
-	_spawn_unit(unit_scene, water_enemy_a, Vector2i(12, 5))
-	_spawn_unit(unit_scene, water_enemy_b, Vector2i(12, 11))
-	_spawn_unit(unit_scene, wind_enemy, Vector2i(10, 3))
-	_spawn_unit(unit_scene, grass_enemy, Vector2i(11, 9))
+	_spawn_unit(unit_scene, water_enemy_a, Vector2i(12, 4))
+	_spawn_unit(unit_scene, water_enemy_b, Vector2i(12, 12))
+	_spawn_unit(unit_scene, wind_enemy, Vector2i(9, 4))
+	_spawn_unit(unit_scene, grass_enemy, Vector2i(10, 12))
 
 func _get_trainer_spawn_pos() -> Vector2i:
 	if _selected_level_id == LEVEL_2_ID:
@@ -736,7 +739,7 @@ func _get_trainer_spawn_pos() -> Vector2i:
 
 func _get_starting_pokemon_positions() -> Array[Vector2i]:
 	if _selected_level_id == LEVEL_2_ID:
-		return [Vector2i(3, 7), Vector2i(3, 9)]
+		return [Vector2i(3, 6), Vector2i(3, 10)]
 	return [Vector2i(3, 5), Vector2i(2, 6)]
 
 func _spawn_unit(unit_scene: PackedScene, unit_data: UnitData, spawn_pos: Vector2i) -> Unit:
