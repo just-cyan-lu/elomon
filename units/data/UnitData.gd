@@ -2,6 +2,8 @@ class_name UnitData
 extends Resource
 
 @export var unit_name: String = "Unknown"
+@export var role_label: String = ""  # UI 用的短定位，例如“火系爆发”“水系支援”
+@export var battle_note: String = "" # 设计说明/悬停说明，不参与数值结算
 @export var unit_type: Enums.UnitType = Enums.UnitType.ENEMY
 @export var max_hp: int = 100
 @export var attack: int = 20        # 攻击力，叠加在技能伤害上

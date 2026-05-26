@@ -7,6 +7,7 @@ enum StatusId {
 	WEAK_MARK,
 	CALIBRATED_ATTACK,
 	BONUS_MOVE,
+	MOVE_PENALTY,
 	CHARGE_WARNING
 }
 
@@ -60,6 +61,13 @@ const DEFS := {
 		"duration_type": DurationType.NEXT_MOVE,
 		"polarity": Polarity.BUFF,
 		"description": "下一次移动距离增加，移动后消耗。"
+	},
+	StatusId.MOVE_PENALTY: {
+		"name": "移动压制",
+		"short": "缚",
+		"duration_type": DurationType.NEXT_ACTION,
+		"polarity": Polarity.DEBUFF,
+		"description": "下次行动时移动距离减少，行动结束后消失。"
 	},
 	StatusId.CHARGE_WARNING: {
 		"name": "蓄力预警",

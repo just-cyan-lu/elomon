@@ -55,7 +55,7 @@ static func run(enemy: Unit, grid_manager: GridManager, all_units: Array[Unit]) 
 	var skill: SkillData = null
 	if not enemy.data.skills.is_empty():
 		skill = enemy.data.skills[0]
-	var move_cells: Array[Vector2i] = grid_manager.get_move_range(enemy.grid_pos, enemy.data.move_range)
+	var move_cells: Array[Vector2i] = grid_manager.get_move_range(enemy.grid_pos, enemy.get_current_move_range())
 	var best_cell := _find_best_move(enemy, move_cells, target, enemy.grid_pos, skill)
 	
 	# 3. 移动
@@ -63,6 +63,7 @@ static func run(enemy: Unit, grid_manager: GridManager, all_units: Array[Unit]) 
 		var from_pos := enemy.grid_pos
 		grid_manager.move_unit(enemy, enemy.grid_pos, best_cell)
 		enemy.grid_pos = best_cell
+		enemy.consume_bonus_move()
 		logs.append(_make_log_record(
 			"%s 移动 %s -> %s。" % [
 				enemy.data.unit_name,
@@ -347,7 +348,8 @@ static func _has_tactical_status(target: Unit) -> bool:
 	return target.shield > 0 \
 		or target.power_boost_next_attack \
 		or target.calibrated_attack_type != Enums.ElementType.NONE \
-		or target.bonus_move_range > 0
+		or target.bonus_move_range > 0 \
+		or target.move_penalty_next_action > 0
 
 static func _get_role_target_bonus(enemy: Unit, target: Unit) -> float:
 	var attack_type := _get_primary_attack_type(enemy)

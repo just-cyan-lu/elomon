@@ -25,6 +25,7 @@ var power_boost_next_attack: bool = false
 var weak_marked: bool = false
 var calibrated_attack_type: int = Enums.ElementType.NONE
 var bonus_move_range: int = 0
+var move_penalty_next_action: int = 0
 var last_attacker: Unit = null
 var ai_turn_count: int = 0
 var pending_charge_cells: Array[Vector2i] = []
@@ -96,7 +97,7 @@ func consume_ap(amount: float) -> void:
 	_update_label()
 
 func get_current_move_range() -> int:
-	return data.move_range + bonus_move_range
+	return max(data.move_range + bonus_move_range - move_penalty_next_action, 0)
 
 func add_bonus_move(amount: int) -> void:
 	bonus_move_range = max(bonus_move_range, amount)
@@ -107,6 +108,18 @@ func consume_bonus_move() -> void:
 	if bonus_move_range <= 0:
 		return
 	bonus_move_range = 0
+	_update_label()
+	emit_signal("status_changed", self)
+
+func add_move_penalty(amount: int) -> void:
+	move_penalty_next_action = max(move_penalty_next_action, amount)
+	_update_label()
+	emit_signal("status_changed", self)
+
+func clear_action_move_penalty() -> void:
+	if move_penalty_next_action <= 0:
+		return
+	move_penalty_next_action = 0
 	_update_label()
 	emit_signal("status_changed", self)
 
@@ -220,6 +233,7 @@ func restore_turn_snapshot(snapshot: Dictionary) -> void:
 	weak_marked = bool(snapshot.get("weak_marked", weak_marked))
 	calibrated_attack_type = int(snapshot.get("calibrated_attack_type", calibrated_attack_type))
 	bonus_move_range = snapshot["bonus_move_range"]
+	move_penalty_next_action = int(snapshot.get("move_penalty_next_action", move_penalty_next_action))
 	_update_hp_bar()
 	_update_label()
 	emit_signal("hp_changed", current_hp, data.max_hp)
@@ -259,6 +273,12 @@ func get_status_entries() -> Array[Dictionary]:
 			StatusTypeUtil.StatusId.BONUS_MOVE,
 			"移",
 			"移动距离 +%d" % bonus_move_range
+		))
+	if move_penalty_next_action > 0:
+		entries.append(StatusTypeUtil.make_entry(
+			StatusTypeUtil.StatusId.MOVE_PENALTY,
+			"缚",
+			"下次行动移动距离 -%d" % move_penalty_next_action
 		))
 	if not pending_charge_cells.is_empty():
 		entries.append(StatusTypeUtil.make_entry(StatusTypeUtil.StatusId.CHARGE_WARNING))

@@ -19,7 +19,7 @@ const UI_MARGIN := 4.0
 const RIGHT_DRAWER_X := 452.0
 const RIGHT_DRAWER_WIDTH := 184.0
 const SYNC_FEEDBACK_POS := Vector2(386, 48)
-const UNIT_HOVER_SIZE := Vector2(174, 102)
+const UNIT_HOVER_SIZE := Vector2(190, 118)
 const POKEMON_IDS := ["fire", "grass", "water", "electric", "ice"]
 const CARD_DEFS := {
 	"haste": {"name": "高速组件", "cost": 30, "cooldown": 2, "effect": "目标宝可梦下一次移动距离 +2，移动后消耗。"},
@@ -514,29 +514,34 @@ func _get_pokemon_prep_label(pokemon_id: String) -> String:
 	return pokemon_id
 
 func _spawn_units() -> void:
-	var fire_skill := _make_skill("火花", 26, 2, 100, Enums.ElementType.FIRE, 20)
-	var flame_line := _make_skill("火焰喷射", 42, 3, 120, Enums.ElementType.FIRE, 35, false, 1)
-	var vine_skill := _make_skill("藤鞭", 24, 3, 100, Enums.ElementType.GRASS, 18, false)
-	var snare_skill := _make_skill("缠绕", 14, 3, 100, Enums.ElementType.GRASS, 25, true)
-	var water_skill := _make_skill("水泡", 20, 3, 100, Enums.ElementType.WATER, 14)
-	var mend_skill := _make_skill("水愈", 22, 3, 100, Enums.ElementType.WATER, 0, false, 0, SkillData.EffectType.HEAL)
-	var spark_skill := _make_skill("电弧", 22, 3, 100, Enums.ElementType.ELECTRIC, 16)
-	var quick_skill := _make_skill("疾闪", 12, 2, 80, Enums.ElementType.ELECTRIC, 8)
-	var ice_skill := _make_skill("冰针", 24, 3, 100, Enums.ElementType.ICE, 18)
-	var frost_skill := _make_skill("霜缚", 16, 3, 120, Enums.ElementType.ICE, 24, true)
-	var blade_skill := _make_skill("数据短刃", 14, 1, 100, Enums.ElementType.NONE, 8)
-	var fire_bite_skill := _make_skill("火牙", 22, 1, 100, Enums.ElementType.FIRE, 10)
-	var grass_bite_skill := _make_skill("叶咬", 22, 1, 100, Enums.ElementType.GRASS, 10)
-	var water_dart_skill := _make_skill("水针", 18, 3, 100, Enums.ElementType.WATER, 10)
-	var wind_skill := _make_skill("风刃", 20, 3, 100, Enums.ElementType.FLYING, 10)
-	var ground_skill := _make_skill("地刺", 24, 2, 100, Enums.ElementType.GROUND, 12)
-	var boss_skill := _make_skill("重踏", 10, 1, 100, Enums.ElementType.GRASS, 10)
+	var fire_skill := _make_skill("火花", 26, 2, 100, Enums.ElementType.FIRE, 20, false, 0, SkillData.EffectType.DAMAGE, "主攻", "稳定火属性单体。")
+	var flame_line := _make_skill("烈焰爆", 34, 3, 120, Enums.ElementType.FIRE, 35, false, 1, SkillData.EffectType.DAMAGE, "范围重招", "目标格周围 1 格范围。")
+	var vine_skill := _make_skill("藤鞭", 24, 3, 100, Enums.ElementType.GRASS, 18, false, 0, SkillData.EffectType.DAMAGE, "远程主攻", "草属性远程单体。")
+	var snare_skill := _make_skill("缠绕", 12, 3, 80, Enums.ElementType.GRASS, 25, true, 0, SkillData.EffectType.DAMAGE, "快控", "轻伤害，行动节奏更快。", 1)
+	var water_skill := _make_skill("水泡", 24, 3, 100, Enums.ElementType.WATER, 14, false, 0, SkillData.EffectType.DAMAGE, "远程主攻", "水属性远程单体。")
+	var mend_skill := _make_skill("水愈", 22, 3, 100, Enums.ElementType.WATER, 0, false, 0, SkillData.EffectType.HEAL, "治疗", "回复自己或友方 HP。")
+	var spark_skill := _make_skill("电弧", 23, 3, 100, Enums.ElementType.ELECTRIC, 16, false, 0, SkillData.EffectType.DAMAGE, "远程主攻", "雷属性远程单体。")
+	var quick_skill := _make_skill("疾闪", 14, 2, 80, Enums.ElementType.ELECTRIC, 8, false, 0, SkillData.EffectType.DAMAGE, "快招", "轻伤害，行动节奏更快。")
+	var ice_skill := _make_skill("冰针", 24, 3, 100, Enums.ElementType.ICE, 18, false, 0, SkillData.EffectType.DAMAGE, "远程主攻", "冰属性远程单体。")
+	var frost_skill := _make_skill("霜缚", 16, 3, 120, Enums.ElementType.ICE, 24, true, 0, SkillData.EffectType.DAMAGE, "重控", "控制更强，但行动节奏更慢。", 2)
+	var blade_skill := _make_skill("数据短刃", 14, 1, 100, Enums.ElementType.NONE, 8, false, 0, SkillData.EffectType.DAMAGE, "自卫", "训练师基础近战。")
+	var fire_bite_skill := _make_skill("火牙", 22, 1, 100, Enums.ElementType.FIRE, 10, false, 0, SkillData.EffectType.DAMAGE, "近战", "火属性近战。")
+	var grass_bite_skill := _make_skill("叶咬", 22, 1, 100, Enums.ElementType.GRASS, 10, false, 0, SkillData.EffectType.DAMAGE, "近战", "草属性近战。")
+	var water_dart_skill := _make_skill("水针", 18, 3, 100, Enums.ElementType.WATER, 10, false, 0, SkillData.EffectType.DAMAGE, "远程", "水属性远程。")
+	var wind_skill := _make_skill("风刃", 20, 3, 100, Enums.ElementType.FLYING, 10, false, 0, SkillData.EffectType.DAMAGE, "猎手远程", "飞属性远程。")
+	var ground_skill := _make_skill("地刺", 24, 2, 100, Enums.ElementType.GROUND, 12, false, 0, SkillData.EffectType.DAMAGE, "守卫", "地属性中程。")
+	var boss_skill := _make_skill("重踏", 10, 1, 100, Enums.ElementType.GRASS, 10, false, 0, SkillData.EffectType.DAMAGE, "厚血压场", "草属性近战。")
 	
 	var fire_data := _make_unit_data("火狐兽", Enums.UnitType.PLAYER_POKEMON, 105, 18, 5, 58, 4, Color(0.95, 0.42, 0.18), Enums.ElementType.FIRE, [fire_skill, flame_line])
+	_set_unit_content(fire_data, "火系爆发 / 范围", "火花为标准行动；烈焰爆为范围重招，下次行动推后 20%。")
 	var grass_data := _make_unit_data("藤藤兽", Enums.UnitType.PLAYER_POKEMON, 95, 15, 5, 48, 4, Color(0.25, 0.75, 0.36), Enums.ElementType.GRASS, [vine_skill, snare_skill])
+	_set_unit_content(grass_data, "草系牵制 / 快控", "藤鞭为标准行动；缠绕为快控，命中后移动-1。")
 	var water_data := _make_unit_data("水跃兽", Enums.UnitType.PLAYER_POKEMON, 88, 13, 4, 52, 4, Color(0.24, 0.58, 0.86), Enums.ElementType.WATER, [water_skill, mend_skill])
+	_set_unit_content(water_data, "水系支援 / 治疗", "水泡为水系远程攻击；水愈回复自己或友方 HP。")
 	var spark_data := _make_unit_data("电花鼠", Enums.UnitType.PLAYER_POKEMON, 76, 16, 3, 68, 5, Color(0.85, 0.78, 0.34), Enums.ElementType.ELECTRIC, [spark_skill, quick_skill])
+	_set_unit_content(spark_data, "雷系高速 / 收割", "电弧为标准远程；疾闪为快招，下次行动提前 20%。")
 	var ice_data := _make_unit_data("冰羽兽", Enums.UnitType.PLAYER_POKEMON, 82, 15, 4, 54, 4, Color(0.58, 0.82, 0.92), Enums.ElementType.ICE, [ice_skill, frost_skill])
+	_set_unit_content(ice_data, "冰系压制 / 重控", "冰针为标准远程；霜缚移动-2，下次行动推后 20%。")
 	_pokemon_roster.clear()
 	_pokemon_roster["fire"] = fire_data
 	_pokemon_roster["grass"] = grass_data
@@ -548,6 +553,7 @@ func _spawn_units() -> void:
 	
 	var unit_scene := preload("res://units/Unit.tscn")
 	var trainer_data := _make_unit_data("训练师", Enums.UnitType.PLAYER, 90, 10, 4, 44, 4, Color(0.35, 0.85, 0.88), Enums.ElementType.NONE, [blade_skill])
+	_set_unit_content(trainer_data, "同步核心", "可提取后备属性和技能；同步率指令支援队伍。")
 	_spawn_unit(unit_scene, trainer_data, Vector2i(2, 5))
 	var start_positions := [Vector2i(3, 5), Vector2i(2, 6)]
 	for i in range(_prep_selected_pokemon_ids.size()):
@@ -565,16 +571,22 @@ func _spawn_units() -> void:
 			_reserve_units[reserve_data.unit_name] = reserve_data
 	_apply_trainer_extract(_prep_extract_id)
 	var fire_enemy := _make_unit_data("火牙小怪", Enums.UnitType.ENEMY, 72, 13, 3, 36, 4, Color(0.92, 0.34, 0.32), Enums.ElementType.FIRE, [fire_bite_skill])
+	_set_unit_content(fire_enemy, "火系近战", "火属性近战敌人。")
 	fire_enemy.ai_profile = Enums.AIProfile.ELEMENTAL
 	var grass_enemy := _make_unit_data("叶咬小怪", Enums.UnitType.ENEMY, 72, 13, 3, 34, 4, Color(0.82, 0.36, 0.28), Enums.ElementType.GRASS, [grass_bite_skill])
+	_set_unit_content(grass_enemy, "草系近战", "草属性近战敌人。")
 	grass_enemy.ai_profile = Enums.AIProfile.ELEMENTAL
 	var water_enemy := _make_unit_data("水针小怪", Enums.UnitType.ENEMY, 62, 11, 2, 40, 3, Color(0.34, 0.48, 0.82), Enums.ElementType.WATER, [water_dart_skill])
+	_set_unit_content(water_enemy, "水系远程", "水属性远程敌人。")
 	water_enemy.ai_profile = Enums.AIProfile.ELEMENTAL
 	var wind_enemy := _make_unit_data("飞羽小怪", Enums.UnitType.ENEMY, 58, 10, 2, 52, 5, Color(0.64, 0.66, 0.86), Enums.ElementType.FLYING, [wind_skill])
+	_set_unit_content(wind_enemy, "飞系远程", "高机动远程敌人。")
 	wind_enemy.ai_profile = Enums.AIProfile.HUNTER
 	var ground_enemy := _make_unit_data("地壳小怪", Enums.UnitType.ENEMY, 88, 12, 5, 28, 3, Color(0.62, 0.50, 0.34), Enums.ElementType.GROUND, [ground_skill])
+	_set_unit_content(ground_enemy, "地系前排", "防御较高的中程敌人。")
 	ground_enemy.ai_profile = Enums.AIProfile.GUARDIAN
 	var boss_data := _make_unit_data("铁甲巨兽", Enums.UnitType.WILD_POKEMON, 280, 8, 8, 24, 2, Color(0.25, 0.65, 0.25), Enums.ElementType.GRASS, [boss_skill], 0, true, 3, 18, 5, 1)
+	_set_unit_content(boss_data, "厚血大怪", "普攻较弱但血量厚，会低频蓄力压迫站位。")
 	boss_data.ai_profile = Enums.AIProfile.AREA
 	_spawn_unit(unit_scene, fire_enemy, Vector2i(10, 4))
 	_spawn_unit(unit_scene, grass_enemy, Vector2i(10, 7))
@@ -637,6 +649,10 @@ func _make_unit_data(
 	data.charge_radius = charge_radius
 	return data
 
+func _set_unit_content(unit_data: UnitData, role_label: String, battle_note: String) -> void:
+	unit_data.role_label = role_label
+	unit_data.battle_note = battle_note
+
 func _make_skill(
 	skill_name: String,
 	damage: int,
@@ -646,10 +662,15 @@ func _make_skill(
 	stability_damage: int,
 	is_control: bool = false,
 	area_radius: int = 0,
-	effect_type: int = SkillData.EffectType.DAMAGE
+	effect_type: int = SkillData.EffectType.DAMAGE,
+	role_label: String = "",
+	effect_note: String = "",
+	move_penalty: int = 0
 ) -> SkillData:
 	var skill := SkillData.new()
 	skill.skill_name = skill_name
+	skill.role_label = role_label
+	skill.effect_note = effect_note
 	skill.damage = damage
 	skill.atk_range = atk_range
 	skill.ap_cost = ap_cost
@@ -658,6 +679,7 @@ func _make_skill(
 	skill.is_control = is_control
 	skill.area_radius = area_radius
 	skill.effect_type = effect_type
+	skill.move_penalty = move_penalty
 	return skill
 
 func _connect_signals() -> void:
@@ -723,6 +745,7 @@ func _end_turn() -> void:
 	if _active_unit and is_instance_valid(_active_unit):
 		var ap_before := _active_unit.current_ap
 		_active_unit.consume_ap(_turn_ap_cost)
+		_active_unit.clear_action_move_penalty()
 		_emit_resource_event(
 			"spend",
 			"ap",
@@ -1018,6 +1041,7 @@ func _on_cell_clicked(grid_pos: Vector2i) -> void:
 				var can_undo_move := not _turn_has_support_action
 				_clear_extract_undo(true)
 				var from_pos := _active_unit.grid_pos
+				var move_range_available := _active_unit.get_current_move_range()
 				grid_manager.move_unit(_active_unit, _active_unit.grid_pos, grid_pos)
 				_active_unit.grid_pos = grid_pos
 				_active_unit.has_moved = true
@@ -1032,7 +1056,8 @@ func _on_cell_clicked(grid_pos: Vector2i) -> void:
 						"event_type": "move",
 						"actor": _unit_log_data(_active_unit),
 						"from_pos": _pos_log_data(from_pos),
-						"to_pos": _pos_log_data(grid_pos)
+						"to_pos": _pos_log_data(grid_pos),
+						"move_range_available": move_range_available
 					},
 					[_unit_log_ref(_active_unit)]
 				)
@@ -1189,6 +1214,10 @@ func _execute_skill_preview(attacker: Unit, skill: SkillData, target_pos: Vector
 		var calibrated_attack_consumed := attacker.calibrated_attack_type != Enums.ElementType.NONE
 		var actual := target.take_damage(entry["raw_damage"], attacker, attack_type)
 		total_damage += actual
+		var move_penalty_applied := 0
+		if skill.move_penalty > 0 and is_instance_valid(target) and target.is_alive():
+			target.add_move_penalty(skill.move_penalty)
+			move_penalty_applied = skill.move_penalty
 		var log_parts: Array[String] = [
 			"%s 使用 %s -> %s" % [
 				attacker.data.unit_name,
@@ -1203,6 +1232,8 @@ func _execute_skill_preview(attacker: Unit, skill: SkillData, target_pos: Vector
 			log_parts.append("属性校准%s" % TypeChartUtil.get_type_name(attack_type))
 		if weak_mark_consumed:
 			log_parts.append("弱点+50%")
+		if move_penalty_applied > 0:
+			log_parts.append("移动-%d" % move_penalty_applied)
 		log_parts.append("伤害 %d" % actual)
 		if target.current_hp <= 0:
 			log_parts.append("%s倒下" % target.data.unit_name)
@@ -1227,6 +1258,7 @@ func _execute_skill_preview(attacker: Unit, skill: SkillData, target_pos: Vector
 				"weak_mark_consumed": weak_mark_consumed,
 				"calibrated_attack_consumed": calibrated_attack_consumed,
 				"calibrated_attack_type": attack_type if calibrated_attack_consumed else Enums.ElementType.NONE,
+				"move_penalty": move_penalty_applied,
 				"target_defeated": target.current_hp <= 0
 			}, skill.ap_cost),
 			[_unit_log_ref(attacker), _unit_log_ref(target)]
@@ -2074,9 +2106,13 @@ func _build_unit_hover_text(unit: Unit) -> String:
 			int(round(unit.data.speed)),
 			unit.get_current_move_range(),
 			unit.data.defense
-		],
-		"技能 %s" % _get_unit_skill_summary(unit)
+		]
 	]
+	if unit.data.role_label != "":
+		lines.append("定位 %s" % unit.data.role_label)
+	if unit.data.battle_note != "":
+		lines.append(unit.data.battle_note)
+	lines.append("技能 %s" % _get_unit_skill_summary(unit))
 	var status_text := _get_unit_status_summary(unit)
 	if status_text != "":
 		lines.append("状态 " + status_text)
@@ -2091,11 +2127,15 @@ func _get_unit_skill_summary(unit: Unit) -> String:
 		var area_text := ""
 		if skill.area_radius > 0:
 			area_text = " 范%d" % skill.area_radius
-		names.append("%s[%s R%d%s]" % [
+		var role_text := ""
+		if skill.role_label != "":
+			role_text = " " + skill.role_label
+		names.append("%s[%s R%d%s%s]" % [
 			skill.skill_name,
 			TypeChartUtil.get_type_name(skill.element_type),
 			skill.atk_range,
-			area_text
+			area_text,
+			role_text
 		])
 	return _join_strings(names, " / ")
 
@@ -2111,6 +2151,8 @@ func _get_unit_status_summary(unit: Unit) -> String:
 		statuses.append("校" + TypeChartUtil.get_type_name(unit.calibrated_attack_type))
 	if unit.bonus_move_range > 0:
 		statuses.append("移+%d" % unit.bonus_move_range)
+	if unit.move_penalty_next_action > 0:
+		statuses.append("移-%d" % unit.move_penalty_next_action)
 	if not unit.pending_charge_cells.is_empty():
 		statuses.append(StatusTypeUtil.get_short(StatusTypeUtil.StatusId.CHARGE_WARNING))
 	return _join_strings(statuses, "、")
@@ -2129,7 +2171,8 @@ func _save_turn_start_state(unit: Unit) -> void:
 		"power_boost_next_attack": unit.power_boost_next_attack,
 		"weak_marked": unit.weak_marked,
 		"calibrated_attack_type": unit.calibrated_attack_type,
-		"bonus_move_range": unit.bonus_move_range
+		"bonus_move_range": unit.bonus_move_range,
+		"move_penalty_next_action": unit.move_penalty_next_action
 	}
 
 func _undo_active_unit_move() -> void:
@@ -2311,10 +2354,16 @@ func _describe_skill(skill: SkillData) -> String:
 		summary += "；" + timing_text
 	summary += "。"
 	parts.append(summary)
+	if skill.role_label != "":
+		parts.append("定位：%s。" % skill.role_label)
 	if skill.effect_type == SkillData.EffectType.HEAL:
 		parts.append("技能回复 %d；可选择自己或友方，%s。" % [skill.damage, finish_text])
 	else:
 		parts.append("技能伤害 %d；实际伤害以确认前预览为准，%s。" % [skill.damage, finish_text])
+	if skill.move_penalty > 0:
+		parts.append("命中后目标下次行动移动-%d。" % skill.move_penalty)
+	if skill.effect_note != "":
+		parts.append(skill.effect_note)
 	return _join_strings(parts, "\n")
 
 func _describe_card(card_id: String) -> String:
@@ -2595,12 +2644,15 @@ func _build_skill_preview(attacker: Unit, skill: SkillData, target_pos: Vector2i
 		var raw_damage := _get_raw_skill_damage(attacker, skill)
 		var attack_type := _get_skill_attack_type(attacker, skill)
 		var hp_damage := _get_expected_hp_damage(target, raw_damage, attack_type)
-		result.append({
+		var damage_entry := {
 			"target": target,
 			"raw_damage": raw_damage,
 			"hp_damage": hp_damage,
 			"attack_type": attack_type
-		})
+		}
+		if skill.move_penalty > 0:
+			damage_entry["move_penalty"] = skill.move_penalty
+		result.append(damage_entry)
 	return result
 
 func _get_skill_area_cells(skill: SkillData, target_pos: Vector2i) -> Array[Vector2i]:
@@ -2625,6 +2677,8 @@ func _build_action_preview(attacker: Unit, skill: SkillData, entries: Array[Dict
 			var attack_type: int = int(entry.get("attack_type", skill.element_type))
 			target_preview["attack_type"] = attack_type
 			target_preview["type_multiplier"] = TypeChartUtil.get_damage_multiplier(attack_type, target.data.get_element_types())
+			if entry.has("move_penalty"):
+				target_preview["move_penalty"] = int(entry["move_penalty"])
 		targets.append(target_preview)
 	return {
 		"event_type": "skill_action_preview",
@@ -2716,12 +2770,14 @@ func _show_preview_panel(attacker: Unit, skill: SkillData, entries: Array[Dictio
 		var relation := _get_element_relation_text(attack_type, target.data.get_element_types())
 		if relation != "":
 			modifiers.append(relation)
-		if attacker.calibrated_attack_type != Enums.ElementType.NONE:
-			modifiers.append("校" + TypeChartUtil.get_type_name(attack_type))
-		if target.weak_marked:
-			modifiers.append("弱点+50%")
-		if hp_damage == 0 and target.shield > 0:
-			modifiers.append("护盾吸收")
+			if attacker.calibrated_attack_type != Enums.ElementType.NONE:
+				modifiers.append("校" + TypeChartUtil.get_type_name(attack_type))
+			if target.weak_marked:
+				modifiers.append("弱点+50%")
+			if hp_damage == 0 and target.shield > 0:
+				modifiers.append("护盾吸收")
+			if entry.has("move_penalty"):
+				modifiers.append("移-%d" % int(entry["move_penalty"]))
 		var modifier_text := ""
 		if not modifiers.is_empty():
 			modifier_text = _join_strings(modifiers, " ") + " "
@@ -2750,6 +2806,8 @@ func _show_preview_markers(entries: Array[Dictionary]) -> void:
 			marker.modulate = Color(0.38, 0.9, 0.58, 1.0)
 		else:
 			marker_parts.append("-" + str(entry["hp_damage"]))
+			if entry.has("move_penalty"):
+				marker_parts.append("缚")
 			marker.modulate = Color(1.0, 0.82, 0.32, 1.0)
 		marker.text = _join_strings(marker_parts, "\n")
 		marker.position = target.position + Vector2(-18, -42)

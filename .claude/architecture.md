@@ -46,12 +46,12 @@
 项目视口为 `640×360`。由于 20×20 网格按 `CELL_SIZE=32` 计算为 `640×640`，当前首屏无法显示完整战场；后续计划通过相机滚动查看完整地图。
 
 ## 单位（`units/`）
-- `Unit.gd`（`class_name Unit`）— 运行时状态：`current_hp`、`current_ap`、`grid_pos`、`has_acted`、`has_moved`、护盾、下次攻击强化、弱点标记、属性校准、下次移动加成、上一次攻击者、蓄力预警格。提供 `take_damage()`、`heal()`、护盾、属性伤害倍率与状态消费等战斗接口。视觉表现由代码动态创建的 `ColorRect`、血条、名称 `Label` 和小状态条节点充当（美术资源到位前的占位符）。阵营色固定为我方柔和蓝、敌方柔和红、中立/野生柔和黄，受伤时会闪白并显示短暂伤害数字。
-- `UnitData.gd`（`class_name UnitData`，继承 `Resource`）— 静态数据：属性、颜色、技能列表、主元素属性、元素属性列表和 `ai_profile`。`element_type` 保留为主属性兼容字段，`element_types` 用于未来双属性；为空时回退到主属性。旧实例位于 `units/data/tres/`，MVP 样板战当前由 `Battle.gd` 动态生成。`max_stability` 字段暂时保留但当前 MVP 不展示也不参与结算。
+- `Unit.gd`（`class_name Unit`）— 运行时状态：`current_hp`、`current_ap`、`grid_pos`、`has_acted`、`has_moved`、护盾、下次攻击强化、弱点标记、属性校准、下次移动加成、下次行动移动压制、上一次攻击者、蓄力预警格。提供 `take_damage()`、`heal()`、护盾、属性伤害倍率与状态消费等战斗接口。视觉表现由代码动态创建的 `ColorRect`、血条、名称 `Label` 和小状态条节点充当（美术资源到位前的占位符）。阵营色固定为我方柔和蓝、敌方柔和红、中立/野生柔和黄，受伤时会闪白并显示短暂伤害数字。
+- `UnitData.gd`（`class_name UnitData`，继承 `Resource`）— 静态数据：属性、定位文案、颜色、技能列表、主元素属性、元素属性列表和 `ai_profile`。`element_type` 保留为主属性兼容字段，`element_types` 用于未来双属性；为空时回退到主属性。旧实例位于 `units/data/tres/`，MVP 样板战当前由 `Battle.gd` 动态生成。`role_label` 和 `battle_note` 只用于悬停说明与设计表达，不参与结算。`max_stability` 字段暂时保留但当前 MVP 不展示也不参与结算。
 - `UnitAI.gd`（`class_name UnitAI`，继承 `RefCounted`）— 无状态静态 AI。`run()` 根据 `UnitData.ai_profile` 调整目标评分权重：猎手型偏低血/斩杀，克制型偏属性克制，守卫型偏最近目标，压制型偏训练师/支援/带增益单位，范围型偏覆盖更多单位。近战会逼近目标，远程会倾向站在射程内而不是贴脸。厚血大怪每隔数次行动可能进入蓄力状态，蓄力目标会优先选择能覆盖更多我方单位的位置，下一次行动结算预警格伤害。AI 不直接操作 UI，而是返回行动日志文本，由 `Battle.gd` 统一展示。
 
 ## 技能（`skills/`）
-- `SkillData.gd`（`class_name SkillData`，继承 `Resource`）— 字段：`skill_name`、`damage`、`atk_range`、行动条内部结算值 `ap_cost`、元素属性、是否控制技能、`area_radius`、`effect_type`。MVP 中大部分技能为标准行动 `ap_cost=100`，不显示成本提示；少量快招/重招才显示“下次行动提前/推后 X%”。`effect_type=DAMAGE` 表示攻击敌人，`HEAL` 表示治疗友方。`area_radius=0` 表示单体，`>0` 表示目标格周围菱形范围。旧实例位于 `skills/tres/`，MVP 样板战当前由 `Battle.gd` 动态生成。`stability_damage` 字段暂时保留但当前 MVP 不展示也不结算。
+- `SkillData.gd`（`class_name SkillData`，继承 `Resource`）— 字段：`skill_name`、`role_label`、`effect_note`、`damage`、`atk_range`、行动条内部结算值 `ap_cost`、元素属性、是否控制技能、`area_radius`、`effect_type`、`move_penalty`。MVP 中大部分技能为标准行动 `ap_cost=100`，不显示成本提示；少量快招/重招才显示“下次行动提前/推后 X%”。`effect_type=DAMAGE` 表示攻击敌人，`HEAL` 表示治疗友方。`area_radius=0` 表示单体，`>0` 表示目标格周围菱形范围。`move_penalty>0` 表示命中后给存活目标添加移动压制，使其下次行动移动距离下降并在行动结束后清除。旧实例位于 `skills/tres/`，MVP 样板战当前由 `Battle.gd` 动态生成。`stability_damage` 字段暂时保留但当前 MVP 不展示也不结算。
 - 伤害公式：先计算 `max(skill.damage + unit.attack - target.defense, 1)`，再通过 `TypeChart` 按目标属性列表逐项连乘；若目标有弱点标记，再乘以 1.5；最后扣护盾。属性校准会把本次伤害技能的攻击属性临时替换为训练师当前提取属性。克制为 2 倍，抵抗为 0.5 倍；未来双属性若同时被克制会得到 4 倍。技能说明只显示 `skill.damage`，实际结果交给伤害预览展示。
 - 玩家单位可通过行动菜单使用技能 1 或技能 2；敌方 AI 仍使用单位技能列表中的第一个技能。
 
