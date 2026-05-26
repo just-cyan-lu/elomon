@@ -62,7 +62,7 @@ node.connect("signal_name", self, "callback")
 ## 资源文件
 单位和技能数据是 Godot `.tres` 文件，请通过 Godot 编辑器的 Inspector 修改，不要手动编辑其文本格式。
 
-MVP 样板战为了快速迭代，暂时在 `Battle.gd` 中动态创建 `UnitData` 和 `SkillData`。稳定后再把数据迁回 `.tres` 资源。
+MVP 样板战为了快速迭代，暂时在 `Battle.gd` 中动态创建 `UnitData` 和 `SkillData`。稳定后再把数据迁回 `.tres` 资源。第一战与第二样板战目前通过战前准备下拉框切换；新增临时样板战时优先复用现有生成函数，等关卡数量变多后再抽正式关卡数据表。
 
 单位属性使用 `UnitData.element_types` 作为结算来源，`element_type` 只作为主属性兼容字段。新增或切换单位属性时优先调用 `set_element_types()`，不要只改 `element_type`。属性倍率统一走 `TypeChart.gd`，避免在战斗脚本里写死克制判断。当前单属性克制为 2 倍；若未来添加双属性，倍率按防御属性列表连乘。
 

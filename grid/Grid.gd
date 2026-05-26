@@ -126,7 +126,14 @@ func clear_threat_cells() -> void:
 		if is_valid(pos) and not _highlighted.has(pos):
 			_cell_nodes[pos.y][pos.x].color = _get_display_color(pos)
 
-func setup_mvp_terrain() -> void:
+func setup_mvp_terrain(level_id: String = "level1") -> void:
+	for y in Enums.GRID_ROWS:
+		for x in Enums.GRID_COLS:
+			set_terrain(Vector2i(x, y), Enums.TerrainType.NORMAL)
+	if level_id == "level2":
+		for pos in [Vector2i(7, 7), Vector2i(8, 8), Vector2i(7, 9), Vector2i(10, 8)]:
+			set_terrain(pos, Enums.TerrainType.GRASS)
+		return
 	for y in range(7, 11):
 		for x in range(7, 11):
 			set_terrain(Vector2i(x, y), Enums.TerrainType.GRASS)

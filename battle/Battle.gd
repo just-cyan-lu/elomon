@@ -21,6 +21,24 @@ const RIGHT_DRAWER_WIDTH := 184.0
 const SYNC_FEEDBACK_POS := Vector2(386, 48)
 const UNIT_HOVER_SIZE := Vector2(190, 118)
 const POKEMON_IDS := ["fire", "grass", "water", "electric", "ice"]
+const LEVEL_1_ID := "level1"
+const LEVEL_2_ID := "level2"
+const LEVEL_DEFS := {
+	LEVEL_1_ID: {
+		"name": "第一场战斗",
+		"short": "第一战",
+		"summary": "草属性厚血 Boss，验证同步率、提取和属性克制基线。",
+		"default_pokemon": ["fire", "grass"],
+		"default_extract": "water"
+	},
+	LEVEL_2_ID: {
+		"name": "第二样板战：侧翼压制测试",
+		"short": "第二战",
+		"summary": "地属性 Boss 与水/飞/地侧翼，验证移动压制和属性选择。",
+		"default_pokemon": ["grass", "electric"],
+		"default_extract": "water"
+	}
+}
 const CARD_DEFS := {
 	"haste": {"name": "高速组件", "cost": 30, "cooldown": 2, "effect": "目标宝可梦下一次移动距离 +2，移动后消耗。"},
 	"shield": {"name": "小型护盾", "cost": 20, "cooldown": 2, "effect": "目标友方获得 30 护盾，护盾会抵消之后受到的伤害。"},
@@ -75,9 +93,12 @@ var _tip_label: Label
 var _prep_panel: PanelContainer
 var _prep_message_label: Label
 var _prep_start_button: Button
+var _prep_level_select: OptionButton
 var _prep_extract_select: OptionButton
+var _prep_level_ids: Array[String] = []
 var _prep_pokemon_buttons := {}
 var _prep_extract_ids: Array[String] = []
+var _selected_level_id: String = LEVEL_1_ID
 var _prep_selected_pokemon_ids: Array[String] = ["fire", "grass"]
 var _prep_extract_id: String = "water"
 var _enemy_threat_button: Button
@@ -273,12 +294,12 @@ func _build_mvp_ui() -> void:
 
 func _build_prep_panel() -> void:
 	_prep_panel = PanelContainer.new()
-	_prep_panel.position = Vector2(154, 42)
-	_prep_panel.size = Vector2(332, 274)
+	_prep_panel.position = Vector2(154, 4)
+	_prep_panel.size = Vector2(332, 352)
 	_style_ui_panel(_prep_panel)
 	$UI.add_child(_prep_panel)
 	var box := VBoxContainer.new()
-	box.add_theme_constant_override("separation", 5)
+	box.add_theme_constant_override("separation", 4)
 	_prep_panel.add_child(box)
 	var title := Label.new()
 	title.text = "战前准备"
@@ -289,6 +310,14 @@ func _build_prep_panel() -> void:
 	summary.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	summary.add_theme_font_size_override("font_size", 8)
 	box.add_child(summary)
+	var level_label := Label.new()
+	level_label.text = "样板战"
+	level_label.add_theme_font_size_override("font_size", 9)
+	box.add_child(level_label)
+	_prep_level_select = OptionButton.new()
+	_prep_level_select.add_theme_font_size_override("font_size", 8)
+	box.add_child(_prep_level_select)
+	_populate_prep_level_options()
 	var pokemon_label := Label.new()
 	pokemon_label.text = "开局上场"
 	pokemon_label.add_theme_font_size_override("font_size", 9)
@@ -316,7 +345,7 @@ func _build_prep_panel() -> void:
 	box.add_child(_prep_extract_select)
 	_populate_prep_extract_options()
 	_prep_message_label = Label.new()
-	_prep_message_label.custom_minimum_size = Vector2(300, 40)
+	_prep_message_label.custom_minimum_size = Vector2(300, 54)
 	_prep_message_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_prep_message_label.add_theme_font_size_override("font_size", 8)
 	box.add_child(_prep_message_label)
@@ -327,6 +356,22 @@ func _build_prep_panel() -> void:
 	_prep_start_button.pressed.connect(_start_battle_from_prep)
 	box.add_child(_prep_start_button)
 	_update_prep_message()
+
+func _populate_prep_level_options() -> void:
+	_prep_level_ids.clear()
+	_prep_level_select.clear()
+	var selected_index := 0
+	for level_id in [LEVEL_1_ID, LEVEL_2_ID]:
+		if not LEVEL_DEFS.has(level_id):
+			continue
+		_prep_level_ids.append(level_id)
+		_prep_level_select.add_item(str(LEVEL_DEFS[level_id]["name"]))
+		if level_id == _selected_level_id:
+			selected_index = _prep_level_ids.size() - 1
+	_prep_level_select.select(selected_index)
+	if selected_index < _prep_level_ids.size():
+		_selected_level_id = _prep_level_ids[selected_index]
+	_prep_level_select.item_selected.connect(_on_prep_level_selected)
 
 func _populate_prep_extract_options() -> void:
 	_prep_extract_ids.clear()
@@ -344,6 +389,32 @@ func _populate_prep_extract_options() -> void:
 	if selected_index < _prep_extract_ids.size():
 		_prep_extract_id = _prep_extract_ids[selected_index]
 	_prep_extract_select.item_selected.connect(_on_prep_extract_selected)
+
+func _on_prep_level_selected(index: int) -> void:
+	if index < 0 or index >= _prep_level_ids.size():
+		return
+	_selected_level_id = _prep_level_ids[index]
+	_apply_level_default_prep()
+	_update_prep_controls_from_state()
+	_update_prep_message()
+
+func _apply_level_default_prep() -> void:
+	var level_def: Dictionary = LEVEL_DEFS.get(_selected_level_id, LEVEL_DEFS[LEVEL_1_ID])
+	_prep_selected_pokemon_ids = []
+	for pokemon_id in level_def.get("default_pokemon", []):
+		_prep_selected_pokemon_ids.append(str(pokemon_id))
+	_prep_extract_id = str(level_def.get("default_extract", "water"))
+
+func _update_prep_controls_from_state() -> void:
+	for pokemon_id in _prep_pokemon_buttons:
+		var button := _prep_pokemon_buttons[pokemon_id] as CheckBox
+		if button != null:
+			button.set_pressed_no_signal(str(pokemon_id) in _prep_selected_pokemon_ids)
+	if _prep_extract_select != null:
+		for i in range(_prep_extract_ids.size()):
+			if _prep_extract_ids[i] == _prep_extract_id:
+				_prep_extract_select.select(i)
+				break
 
 func _on_prep_pokemon_toggled(pokemon_id: String, pressed: bool) -> void:
 	if pressed:
@@ -378,7 +449,10 @@ func _update_prep_message() -> void:
 	var names: Array[String] = []
 	for pokemon_id in _prep_selected_pokemon_ids:
 		names.append(_get_pokemon_name(pokemon_id))
-	_show_prep_message("开局：训练师 + %s。默认提取：%s。" % [
+	var level_def: Dictionary = LEVEL_DEFS.get(_selected_level_id, LEVEL_DEFS[LEVEL_1_ID])
+	_show_prep_message("%s：%s\n开局：训练师 + %s。默认提取：%s。" % [
+		str(level_def["short"]),
+		str(level_def["summary"]),
 		_join_strings(names, "、"),
 		_get_extract_display_name(_prep_extract_id, true)
 	])
@@ -397,16 +471,22 @@ func _start_battle_from_prep() -> void:
 		return
 	if is_instance_valid(_prep_panel):
 		_prep_panel.queue_free()
+	_prep_panel = null
+	grid_manager.setup_mvp_terrain(_selected_level_id)
 	_spawn_units()
 	ctb_system.register_units(_all_units)
 	_update_sync_ui()
+	var level_def: Dictionary = LEVEL_DEFS.get(_selected_level_id, LEVEL_DEFS[LEVEL_1_ID])
 	_add_battle_log(
-		"战斗开始。开局上场 %s，训练师默认提取 %s。" % [
+		"%s 开始。开局上场 %s，训练师默认提取 %s。" % [
+			str(level_def["short"]),
 			_get_selected_pokemon_names_text(),
 			_get_extract_display_name(_prep_extract_id, true)
 		],
 		{
 			"event_type": "battle_start",
+			"level_id": _selected_level_id,
+			"level_name": str(level_def["name"]),
 			"starting_pokemon_ids": _prep_selected_pokemon_ids.duplicate(),
 			"default_extract_id": _prep_extract_id
 		}
@@ -425,7 +505,7 @@ func _build_battle_briefing_panel() -> void:
 	box.add_theme_constant_override("separation", 6)
 	_briefing_panel.add_child(box)
 	var title := Label.new()
-	title.text = "第一场战斗"
+	title.text = str(LEVEL_DEFS.get(_selected_level_id, LEVEL_DEFS[LEVEL_1_ID])["name"])
 	title.add_theme_font_size_override("font_size", 14)
 	box.add_child(title)
 	var objective := Label.new()
@@ -455,13 +535,18 @@ func _get_battle_briefing_text() -> String:
 		"4. 默认形态：%s；对应后备会被同步占用。" % _get_extract_display_name(_prep_extract_id, true),
 		"5. 可随时点“敌方范围”查看敌方全体威胁。"
 	]
+	if _selected_level_id == LEVEL_2_ID:
+		lines.append("本场重点：地属性 Boss、侧翼远程和移动压制。")
 	return _join_strings(lines, "\n")
 
 func _start_battle_after_briefing() -> void:
 	if is_instance_valid(_briefing_panel):
 		_briefing_panel.queue_free()
 	_briefing_panel = null
-	_show_tip("目标：击败全部敌人。用属性克制和同步率指令处理铁甲巨兽。")
+	if _selected_level_id == LEVEL_2_ID:
+		_show_tip("目标：击败全部敌人。用移动压制和属性克制处理岩脊巨兽。")
+	else:
+		_show_tip("目标：击败全部敌人。用属性克制和同步率指令处理铁甲巨兽。")
 	ctb_system.start()
 
 func _get_selected_pokemon_names_text() -> String:
@@ -531,6 +616,8 @@ func _spawn_units() -> void:
 	var wind_skill := _make_skill("风刃", 20, 3, 100, Enums.ElementType.FLYING, 10, false, 0, SkillData.EffectType.DAMAGE, "猎手远程", "飞属性远程。")
 	var ground_skill := _make_skill("地刺", 24, 2, 100, Enums.ElementType.GROUND, 12, false, 0, SkillData.EffectType.DAMAGE, "守卫", "地属性中程。")
 	var boss_skill := _make_skill("重踏", 10, 1, 100, Enums.ElementType.GRASS, 10, false, 0, SkillData.EffectType.DAMAGE, "厚血压场", "草属性近战。")
+	var rock_stomp_skill := _make_skill("岩踏", 10, 1, 100, Enums.ElementType.GROUND, 10, false, 0, SkillData.EffectType.DAMAGE, "厚血压场", "地属性近战。")
+	var grass_thorn_skill := _make_skill("藤刺", 22, 1, 100, Enums.ElementType.GRASS, 10, false, 0, SkillData.EffectType.DAMAGE, "近战", "草属性近战。")
 	
 	var fire_data := _make_unit_data("火狐兽", Enums.UnitType.PLAYER_POKEMON, 105, 18, 5, 58, 4, Color(0.95, 0.42, 0.18), Enums.ElementType.FIRE, [fire_skill, flame_line])
 	_set_unit_content(fire_data, "火系爆发 / 范围", "火花为标准行动；烈焰爆为范围重招，下次行动推后 20%。")
@@ -554,8 +641,8 @@ func _spawn_units() -> void:
 	var unit_scene := preload("res://units/Unit.tscn")
 	var trainer_data := _make_unit_data("训练师", Enums.UnitType.PLAYER, 90, 10, 4, 44, 4, Color(0.35, 0.85, 0.88), Enums.ElementType.NONE, [blade_skill])
 	_set_unit_content(trainer_data, "同步核心", "可提取后备属性和技能；同步率指令支援队伍。")
-	_spawn_unit(unit_scene, trainer_data, Vector2i(2, 5))
-	var start_positions := [Vector2i(3, 5), Vector2i(2, 6)]
+	_spawn_unit(unit_scene, trainer_data, _get_trainer_spawn_pos())
+	var start_positions := _get_starting_pokemon_positions()
 	for i in range(_prep_selected_pokemon_ids.size()):
 		var pokemon_id := str(_prep_selected_pokemon_ids[i])
 		if not _pokemon_roster.has(pokemon_id):
@@ -570,6 +657,20 @@ func _spawn_units() -> void:
 			var reserve_data: UnitData = _pokemon_roster[current_id]
 			_reserve_units[reserve_data.unit_name] = reserve_data
 	_apply_trainer_extract(_prep_extract_id)
+	if _selected_level_id == LEVEL_2_ID:
+		_spawn_level2_enemies(unit_scene, ground_skill, rock_stomp_skill, water_dart_skill, wind_skill, grass_thorn_skill)
+	else:
+		_spawn_level1_enemies(unit_scene, fire_bite_skill, grass_bite_skill, water_dart_skill, wind_skill, ground_skill, boss_skill)
+
+func _spawn_level1_enemies(
+	unit_scene: PackedScene,
+	fire_bite_skill: SkillData,
+	grass_bite_skill: SkillData,
+	water_dart_skill: SkillData,
+	wind_skill: SkillData,
+	ground_skill: SkillData,
+	boss_skill: SkillData
+) -> void:
 	var fire_enemy := _make_unit_data("火牙小怪", Enums.UnitType.ENEMY, 72, 13, 3, 36, 4, Color(0.92, 0.34, 0.32), Enums.ElementType.FIRE, [fire_bite_skill])
 	_set_unit_content(fire_enemy, "火系近战", "火属性近战敌人。")
 	fire_enemy.ai_profile = Enums.AIProfile.ELEMENTAL
@@ -594,6 +695,49 @@ func _spawn_units() -> void:
 	_spawn_unit(unit_scene, wind_enemy, Vector2i(12, 2))
 	_spawn_unit(unit_scene, ground_enemy, Vector2i(12, 9))
 	_spawn_unit(unit_scene, boss_data, Vector2i(14, 9))
+
+func _spawn_level2_enemies(
+	unit_scene: PackedScene,
+	ground_skill: SkillData,
+	rock_stomp_skill: SkillData,
+	water_dart_skill: SkillData,
+	wind_skill: SkillData,
+	grass_thorn_skill: SkillData
+) -> void:
+	var ground_enemy := _make_unit_data("地壳小怪", Enums.UnitType.ENEMY, 88, 12, 5, 28, 3, Color(0.62, 0.50, 0.34), Enums.ElementType.GROUND, [ground_skill])
+	_set_unit_content(ground_enemy, "地系前排", "防御较高的中程敌人。")
+	ground_enemy.ai_profile = Enums.AIProfile.GUARDIAN
+	var boss_data := _make_unit_data("岩脊巨兽", Enums.UnitType.WILD_POKEMON, 260, 8, 8, 22, 2, Color(0.58, 0.50, 0.36), Enums.ElementType.GROUND, [rock_stomp_skill], 0, true, 3, 18, 5, 1)
+	_set_unit_content(boss_data, "厚血大怪", "地属性厚血 Boss，会低频蓄力压迫站位。")
+	boss_data.ai_profile = Enums.AIProfile.AREA
+	var water_enemy_a := _make_unit_data("水针小怪A", Enums.UnitType.ENEMY, 62, 11, 2, 40, 3, Color(0.34, 0.48, 0.82), Enums.ElementType.WATER, [water_dart_skill])
+	_set_unit_content(water_enemy_a, "水系远程", "水属性远程敌人。")
+	water_enemy_a.ai_profile = Enums.AIProfile.ELEMENTAL
+	var water_enemy_b := _make_unit_data("水针小怪B", Enums.UnitType.ENEMY, 62, 11, 2, 40, 3, Color(0.34, 0.48, 0.82), Enums.ElementType.WATER, [water_dart_skill])
+	_set_unit_content(water_enemy_b, "水系远程", "水属性远程敌人。")
+	water_enemy_b.ai_profile = Enums.AIProfile.ELEMENTAL
+	var wind_enemy := _make_unit_data("飞羽小怪", Enums.UnitType.ENEMY, 58, 10, 2, 52, 5, Color(0.64, 0.66, 0.86), Enums.ElementType.FLYING, [wind_skill])
+	_set_unit_content(wind_enemy, "飞系远程", "高机动远程敌人。")
+	wind_enemy.ai_profile = Enums.AIProfile.HUNTER
+	var grass_enemy := _make_unit_data("藤刺小怪", Enums.UnitType.ENEMY, 70, 12, 3, 34, 4, Color(0.82, 0.36, 0.28), Enums.ElementType.GRASS, [grass_thorn_skill])
+	_set_unit_content(grass_enemy, "草系近战", "草属性近战敌人。")
+	grass_enemy.ai_profile = Enums.AIProfile.ELEMENTAL
+	_spawn_unit(unit_scene, ground_enemy, Vector2i(9, 8))
+	_spawn_unit(unit_scene, boss_data, Vector2i(14, 8))
+	_spawn_unit(unit_scene, water_enemy_a, Vector2i(12, 5))
+	_spawn_unit(unit_scene, water_enemy_b, Vector2i(12, 11))
+	_spawn_unit(unit_scene, wind_enemy, Vector2i(10, 3))
+	_spawn_unit(unit_scene, grass_enemy, Vector2i(11, 9))
+
+func _get_trainer_spawn_pos() -> Vector2i:
+	if _selected_level_id == LEVEL_2_ID:
+		return Vector2i(2, 8)
+	return Vector2i(2, 5)
+
+func _get_starting_pokemon_positions() -> Array[Vector2i]:
+	if _selected_level_id == LEVEL_2_ID:
+		return [Vector2i(3, 7), Vector2i(3, 9)]
+	return [Vector2i(3, 5), Vector2i(2, 6)]
 
 func _spawn_unit(unit_scene: PackedScene, unit_data: UnitData, spawn_pos: Vector2i) -> Unit:
 	var unit: Unit = unit_scene.instantiate()
@@ -2062,7 +2206,7 @@ func _is_mouse_over_battle_ui(mouse_pos: Vector2) -> bool:
 		return true
 	if Rect2(ctb_bar.position, Vector2(292, 50)).has_point(mouse_pos):
 		return true
-	var controls: Array[Control] = [
+	var controls: Array = [
 		_sync_panel,
 		_sync_feedback_panel,
 		_tip_panel,
