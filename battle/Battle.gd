@@ -88,6 +88,7 @@ var _log_label: RichTextLabel
 var _log_toggle_button: Button
 var _log_drawer_open := false
 var _card_cooldowns := {}
+var _last_tip_text := ""
 var _selected_skill_target: Vector2i = Vector2i(-1, -1)
 var _skill_preview_entries: Array[Dictionary] = []
 var _skill_preview_markers: Array[Label] = []
@@ -173,6 +174,7 @@ func _build_mvp_ui() -> void:
 	_sync_feedback_panel.add_child(_sync_feedback_label)
 
 	_tip_panel = _make_ui_panel(Vector2(4, 236), Vector2(444, 36), Color(0.08, 0.08, 0.10, 0.78), Color(0.45, 0.50, 0.62, 0.44))
+	_tip_panel.visible = false
 	$UI.add_child(_tip_panel)
 	_tip_label = Label.new()
 	_tip_label.position = Vector2(6, 3)
@@ -1934,8 +1936,16 @@ func _get_trainer_form_summary() -> String:
 	return _get_extract_display_name(_trainer_extract_id, false)
 
 func _show_tip(text: String) -> void:
+	_last_tip_text = text
+	if is_instance_valid(action_menu) and action_menu.visible:
+		action_menu.set_description(text)
+		if is_instance_valid(_tip_panel):
+			_tip_panel.visible = false
+		return
 	if is_instance_valid(_tip_label):
 		_tip_label.text = text
+	if is_instance_valid(_tip_panel):
+		_tip_panel.visible = text != ""
 
 func _save_turn_start_state(unit: Unit) -> void:
 	if unit == null or not is_instance_valid(unit):
@@ -2018,6 +2028,8 @@ func _show_action_menu() -> void:
 	if _active_unit == null or not is_instance_valid(_active_unit):
 		return
 	_update_action_menu_content()
+	if is_instance_valid(_tip_panel):
+		_tip_panel.visible = false
 	action_menu.show_at(_active_unit.position)
 
 func _update_action_menu_content() -> void:
@@ -2033,6 +2045,13 @@ func _update_action_menu_content() -> void:
 	action_menu.set_extract_labels(_build_extract_labels())
 	action_menu.set_wait_label("结束" if _has_turn_activity() else "待机")
 	action_menu.set_option_descriptions(_build_action_descriptions())
+	action_menu.set_context_label(_get_action_context_label())
+	action_menu.set_description(_last_tip_text)
+
+func _get_action_context_label() -> String:
+	if _active_unit == null or not is_instance_valid(_active_unit):
+		return "等待行动"
+	return "轮到 %s" % _active_unit.data.unit_name
 
 func _build_card_labels() -> Dictionary:
 	var labels := {}

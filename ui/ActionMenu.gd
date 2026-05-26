@@ -11,9 +11,15 @@ signal recall_pressed
 signal option_hovered(description: String)
 
 const MENU_SCREEN_PADDING := 4.0
-const MENU_MAX_HEIGHT := 72.0
+const COMMAND_ROW_MAX_HEIGHT := 44.0
+const DESCRIPTION_HEIGHT := 18.0
+const CONTEXT_WIDTH := 108.0
 
 var _panel: PanelContainer
+var _content_box: VBoxContainer
+var _command_row: HBoxContainer
+var _context_label: Label
+var _description_label: Label
 var _button_list: Control
 var _scroll_container: ScrollContainer
 var _btn_move: Button
@@ -95,14 +101,34 @@ func _add_button(label: String, key: String, callback: Callable) -> Button:
 
 func _setup_scroll_container() -> void:
 	_panel.remove_child(_button_list)
+	_content_box = VBoxContainer.new()
+	_content_box.add_theme_constant_override("separation", 2)
+	_panel.add_child(_content_box)
+	_command_row = HBoxContainer.new()
+	_command_row.add_theme_constant_override("separation", 4)
+	_content_box.add_child(_command_row)
+	_context_label = Label.new()
+	_context_label.text = "等待行动"
+	_context_label.custom_minimum_size = Vector2(CONTEXT_WIDTH, 24)
+	_context_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_context_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_context_label.add_theme_font_size_override("font_size", 8)
+	_context_label.add_theme_color_override("font_color", Color(0.76, 0.86, 1.0, 1.0))
+	_command_row.add_child(_context_label)
 	_scroll_container = ScrollContainer.new()
 	_scroll_container.name = "ScrollContainer"
 	_scroll_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_scroll_container.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	_panel.add_child(_scroll_container)
+	_command_row.add_child(_scroll_container)
 	_scroll_container.add_child(_button_list)
 	_button_list.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_button_list.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_description_label = Label.new()
+	_description_label.custom_minimum_size = Vector2(200, DESCRIPTION_HEIGHT)
+	_description_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_description_label.add_theme_font_size_override("font_size", 7)
+	_description_label.add_theme_color_override("font_color", Color(0.78, 0.81, 0.88, 1.0))
+	_content_box.add_child(_description_label)
 
 func _style_panel(panel: PanelContainer) -> void:
 	var style := StyleBoxFlat.new()
@@ -122,6 +148,7 @@ func _style_panel(panel: PanelContainer) -> void:
 func _bind_hover(button: Button, key: String) -> void:
 	button.mouse_entered.connect(func():
 		if _descriptions.has(key):
+			set_description(_descriptions[key])
 			emit_signal("option_hovered", _descriptions[key])
 	)
 
@@ -153,6 +180,14 @@ func set_extract_labels(extract_labels: Dictionary) -> void:
 func set_wait_label(label: String) -> void:
 	if _btn_wait != null:
 		_btn_wait.text = label
+
+func set_context_label(text: String) -> void:
+	if _context_label != null:
+		_context_label.text = text
+
+func set_description(text: String) -> void:
+	if _description_label != null:
+		_description_label.text = text
 
 func set_context(is_trainer_context: bool) -> void:
 	_is_trainer_context = is_trainer_context
@@ -223,12 +258,14 @@ func hide_menu() -> void:
 
 func _fit_panel_to_viewport(viewport_size: Vector2) -> void:
 	var menu_width: float = max(240.0, viewport_size.x - MENU_SCREEN_PADDING * 2.0)
-	var content_width: float = max(220.0, menu_width - 14.0)
+	var content_width: float = max(160.0, menu_width - CONTEXT_WIDTH - 24.0)
 	_button_list.custom_minimum_size = Vector2(content_width, _button_list.custom_minimum_size.y)
 	_button_list.size = Vector2(content_width, _button_list.size.y)
+	_description_label.custom_minimum_size = Vector2(menu_width - 12.0, DESCRIPTION_HEIGHT)
 	await get_tree().process_frame
 	var content_size := _button_list.get_combined_minimum_size()
-	var scroll_height: float = clamp(content_size.y, 28.0, MENU_MAX_HEIGHT)
+	var scroll_height: float = clamp(content_size.y, 24.0, COMMAND_ROW_MAX_HEIGHT)
+	_context_label.custom_minimum_size = Vector2(CONTEXT_WIDTH, scroll_height)
 	_scroll_container.custom_minimum_size = Vector2(
 		content_width,
 		scroll_height
@@ -236,5 +273,5 @@ func _fit_panel_to_viewport(viewport_size: Vector2) -> void:
 	await get_tree().process_frame
 	_panel.size = Vector2(
 		menu_width,
-		min(scroll_height + 8.0, viewport_size.y - MENU_SCREEN_PADDING * 2.0)
+		min(scroll_height + DESCRIPTION_HEIGHT + 14.0, viewport_size.y - MENU_SCREEN_PADDING * 2.0)
 	)
