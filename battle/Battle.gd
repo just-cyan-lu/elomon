@@ -6,7 +6,8 @@ signal action_preview_updated(preview: Dictionary)
 const TypeChartUtil = preload("res://core/TypeChart.gd")
 const StatusTypeUtil = preload("res://core/StatusTypes.gd")
 const CARD_RANGE := 3
-const SUMMON_COST := 50
+const SUMMON_BASE_COST := 100
+const SUMMON_COST_STEP := 60
 const RECALL_COST := 10
 const EXTRACT_COST := 100
 const BATTLE_LOG_LIMIT := 80
@@ -91,6 +92,7 @@ var _log_drawer_open := false
 var _unit_hover_panel: PanelContainer
 var _unit_hover_label: Label
 var _card_cooldowns := {}
+var _summon_count: int = 0
 var _last_tip_text := ""
 var _selected_skill_target: Vector2i = Vector2i(-1, -1)
 var _skill_preview_entries: Array[Dictionary] = []
@@ -542,6 +544,7 @@ func _spawn_units() -> void:
 	_pokemon_roster["electric"] = spark_data
 	_pokemon_roster["ice"] = ice_data
 	_reserve_units.clear()
+	_summon_count = 0
 	
 	var unit_scene := preload("res://units/Unit.tscn")
 	var trainer_data := _make_unit_data("训练师", Enums.UnitType.PLAYER, 90, 10, 4, 44, 4, Color(0.35, 0.85, 0.88), Enums.ElementType.NONE, [blade_skill])
@@ -561,12 +564,24 @@ func _spawn_units() -> void:
 			var reserve_data: UnitData = _pokemon_roster[current_id]
 			_reserve_units[reserve_data.unit_name] = reserve_data
 	_apply_trainer_extract(_prep_extract_id)
-	_spawn_unit(unit_scene, _make_unit_data("火牙小怪", Enums.UnitType.ENEMY, 72, 13, 3, 36, 4, Color(0.92, 0.34, 0.32), Enums.ElementType.FIRE, [fire_bite_skill]), Vector2i(10, 4))
-	_spawn_unit(unit_scene, _make_unit_data("叶咬小怪", Enums.UnitType.ENEMY, 72, 13, 3, 34, 4, Color(0.82, 0.36, 0.28), Enums.ElementType.GRASS, [grass_bite_skill]), Vector2i(10, 7))
-	_spawn_unit(unit_scene, _make_unit_data("水针小怪", Enums.UnitType.ENEMY, 62, 11, 2, 40, 3, Color(0.34, 0.48, 0.82), Enums.ElementType.WATER, [water_dart_skill]), Vector2i(13, 5))
-	_spawn_unit(unit_scene, _make_unit_data("飞羽小怪", Enums.UnitType.ENEMY, 58, 10, 2, 52, 5, Color(0.64, 0.66, 0.86), Enums.ElementType.FLYING, [wind_skill]), Vector2i(12, 2))
-	_spawn_unit(unit_scene, _make_unit_data("地壳小怪", Enums.UnitType.ENEMY, 88, 12, 5, 28, 3, Color(0.62, 0.50, 0.34), Enums.ElementType.GROUND, [ground_skill]), Vector2i(12, 9))
-	_spawn_unit(unit_scene, _make_unit_data("铁甲巨兽", Enums.UnitType.WILD_POKEMON, 280, 8, 8, 24, 2, Color(0.25, 0.65, 0.25), Enums.ElementType.GRASS, [boss_skill], 0, true, 3, 18, 5, 1), Vector2i(14, 9))
+	var fire_enemy := _make_unit_data("火牙小怪", Enums.UnitType.ENEMY, 72, 13, 3, 36, 4, Color(0.92, 0.34, 0.32), Enums.ElementType.FIRE, [fire_bite_skill])
+	fire_enemy.ai_profile = Enums.AIProfile.ELEMENTAL
+	var grass_enemy := _make_unit_data("叶咬小怪", Enums.UnitType.ENEMY, 72, 13, 3, 34, 4, Color(0.82, 0.36, 0.28), Enums.ElementType.GRASS, [grass_bite_skill])
+	grass_enemy.ai_profile = Enums.AIProfile.ELEMENTAL
+	var water_enemy := _make_unit_data("水针小怪", Enums.UnitType.ENEMY, 62, 11, 2, 40, 3, Color(0.34, 0.48, 0.82), Enums.ElementType.WATER, [water_dart_skill])
+	water_enemy.ai_profile = Enums.AIProfile.ELEMENTAL
+	var wind_enemy := _make_unit_data("飞羽小怪", Enums.UnitType.ENEMY, 58, 10, 2, 52, 5, Color(0.64, 0.66, 0.86), Enums.ElementType.FLYING, [wind_skill])
+	wind_enemy.ai_profile = Enums.AIProfile.HUNTER
+	var ground_enemy := _make_unit_data("地壳小怪", Enums.UnitType.ENEMY, 88, 12, 5, 28, 3, Color(0.62, 0.50, 0.34), Enums.ElementType.GROUND, [ground_skill])
+	ground_enemy.ai_profile = Enums.AIProfile.GUARDIAN
+	var boss_data := _make_unit_data("铁甲巨兽", Enums.UnitType.WILD_POKEMON, 280, 8, 8, 24, 2, Color(0.25, 0.65, 0.25), Enums.ElementType.GRASS, [boss_skill], 0, true, 3, 18, 5, 1)
+	boss_data.ai_profile = Enums.AIProfile.AREA
+	_spawn_unit(unit_scene, fire_enemy, Vector2i(10, 4))
+	_spawn_unit(unit_scene, grass_enemy, Vector2i(10, 7))
+	_spawn_unit(unit_scene, water_enemy, Vector2i(13, 5))
+	_spawn_unit(unit_scene, wind_enemy, Vector2i(12, 2))
+	_spawn_unit(unit_scene, ground_enemy, Vector2i(12, 9))
+	_spawn_unit(unit_scene, boss_data, Vector2i(14, 9))
 
 func _spawn_unit(unit_scene: PackedScene, unit_data: UnitData, spawn_pos: Vector2i) -> Unit:
 	var unit: Unit = unit_scene.instantiate()
@@ -864,8 +879,9 @@ func _on_summon_pressed(summon_id: String) -> void:
 	if not _reserve_units.has(reserve_name):
 		_show_tip("%s 不在后备中，不能召唤。" % reserve_name)
 		return
-	if _sync_points < SUMMON_COST:
-		_show_tip("同步率不足，召唤需要 %d。" % SUMMON_COST)
+	var summon_cost := _get_summon_cost()
+	if _sync_points < summon_cost:
+		_show_tip("同步率不足，召唤需要 %d。" % summon_cost)
 		return
 	_selected_summon_id = summon_id
 	_action_state = Enums.ActionState.SELECTING_SUMMON
@@ -1403,12 +1419,22 @@ func _summon_reserve(grid_pos: Vector2i) -> void:
 	if not _reserve_units.has(reserve_name):
 		_show_tip("%s 不在后备中，不能召唤。" % reserve_name)
 		return
-	_spend_sync(SUMMON_COST, "召唤 %s" % reserve_name, _trainer, null, {
+	var summon_cost := _get_summon_cost()
+	if _sync_points < summon_cost:
+		_show_tip("同步率不足，召唤需要 %d。" % summon_cost)
+		_selected_summon_id = ""
+		_action_state = Enums.ActionState.IDLE
+		grid_manager.clear_highlights()
+		_show_action_menu()
+		return
+	_spend_sync(summon_cost, "召唤 %s" % reserve_name, _trainer, null, {
 		"event_type": "summon",
 		"summon_id": _selected_summon_id,
-		"reserve_name": reserve_name
+		"reserve_name": reserve_name,
+		"summon_index": _summon_count + 1
 	})
 	_turn_has_support_action = true
+	_summon_count += 1
 	_commit_pending_turn_logs()
 	_clear_extract_undo(true)
 	var unit_scene := preload("res://units/Unit.tscn")
@@ -1422,7 +1448,7 @@ func _summon_reserve(grid_pos: Vector2i) -> void:
 			_trainer.data.unit_name,
 			reserve_name,
 			_format_grid_pos(grid_pos),
-			SUMMON_COST
+			summon_cost
 		],
 		{
 			"event_type": "summon",
@@ -1430,7 +1456,8 @@ func _summon_reserve(grid_pos: Vector2i) -> void:
 			"summoned_unit": _unit_log_data(unit),
 			"summon_id": _selected_summon_id,
 			"to_pos": _pos_log_data(grid_pos),
-			"sync_cost": SUMMON_COST
+			"sync_cost": summon_cost,
+			"summon_index": _summon_count
 		},
 		[_unit_log_ref(_trainer), _unit_log_ref(unit)]
 	)
@@ -1669,6 +1696,9 @@ func _active_pokemon_count() -> int:
 		if unit.is_ally() and unit.data.unit_type == Enums.UnitType.PLAYER_POKEMON:
 			count += 1
 	return count
+
+func _get_summon_cost() -> int:
+	return SUMMON_BASE_COST + _summon_count * SUMMON_COST_STEP
 
 func _get_natural_sync_gain_amount() -> int:
 	return max(1, 6 - _active_pokemon_count() * 2)
@@ -2211,7 +2241,7 @@ func _build_summon_labels() -> Dictionary:
 		elif not _reserve_units.has(reserve_name):
 			labels[summon_id] = label + "离"
 		else:
-			labels[summon_id] = "%s%d" % [label, SUMMON_COST]
+			labels[summon_id] = "%s%d" % [label, _get_summon_cost()]
 	return labels
 
 func _build_extract_labels() -> Dictionary:
@@ -2242,7 +2272,10 @@ func _build_action_descriptions() -> Dictionary:
 	else:
 		descriptions["group_sync"] = "同步率：本回合可在指令、提取、召唤或回收中选择 1 次。移动和技能不占用这次机会。"
 	descriptions["group_cards"] = "指令：消耗同步率强化、保护、标记弱点、换位或校准属性。本回合与提取、召唤共享 1 次同步率操作。"
-	descriptions["group_summon"] = "召唤：选择一只仍在后备、且没有提供当前同步形态的宝可梦入场。召唤会让对应提取暂时不可用，并占用本回合同步率操作。"
+	descriptions["group_summon"] = "召唤：选择一只仍在后备、且没有提供当前同步形态的宝可梦入场。第 %d 次额外召唤消耗 %d；召唤会让对应提取暂时不可用，并占用本回合同步率操作。" % [
+		_summon_count + 1,
+		_get_summon_cost()
+	]
 	descriptions["group_extract"] = "提取：切换训练师当前属性和技能，持续到下一次提取；占用本回合同步率操作。未行动前可按 Esc 撤销。"
 	for i in range(2):
 		var key := "skill%d" % (i + 1)
@@ -2312,16 +2345,18 @@ func _describe_card(card_id: String) -> String:
 func _describe_summon(summon_id: String) -> String:
 	var summon_def = SUMMON_DEFS[summon_id]
 	var reserve_name := str(summon_def["reserve"])
+	var summon_cost := _get_summon_cost()
 	var status := "可用"
 	if _is_summon_locked_by_extract(summon_id):
 		status = "%s 正在提供当前同步形态" % reserve_name
 	elif not _reserve_units.has(reserve_name):
 		status = "%s 不在后备" % reserve_name
-	elif _sync_points < SUMMON_COST:
+	elif _sync_points < summon_cost:
 		status = "同步率不足"
-	return "%s：消耗 %d，同步率当前 %d，自然上限 %d，在训练师 %d 格内召唤。%s\n状态：%s" % [
+	return "%s：第 %d 次额外召唤，消耗 %d，同步率当前 %d，自然上限 %d，在训练师 %d 格内召唤。%s\n状态：%s" % [
 		summon_def["name"],
-		SUMMON_COST,
+		_summon_count + 1,
+		summon_cost,
 		_sync_points,
 		SYNC_NATURAL_CAP,
 		CARD_RANGE,

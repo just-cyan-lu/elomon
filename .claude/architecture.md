@@ -1,7 +1,7 @@
 # 架构详解
 
 ## 全局与核心工具（`core/`）
-- `Enums.gd` — 所有共享枚举（`UnitType`、`ElementType`、`TerrainType`、`BattleState`、`ActionState`）以及网格/CTB 常量（`GRID_COLS=20`、`GRID_ROWS=20`、`CELL_SIZE=32`、`MAX_AP=100`）。全局以 `Enums.*` 引用。
+- `Enums.gd` — 所有共享枚举（`UnitType`、`ElementType`、`TerrainType`、`AIProfile`、`BattleState`、`ActionState`）以及网格/CTB 常量（`GRID_COLS=20`、`GRID_ROWS=20`、`CELL_SIZE=32`、`MAX_AP=100`）。全局以 `Enums.*` 引用。
 - `TypeChart.gd` — 属性倍率表与工具函数，通过 `preload("res://core/TypeChart.gd")` 使用。当前 MVP 使用火、水、草、冰、雷、飞、地 7 属性，克制 2 倍，抵抗 0.5 倍；单位属性列表逐项连乘，未来双属性可自然得到 4 倍克制伤害。
 - `StatusTypes.gd` — 临时状态类型表，统一管理状态 id、正负面、持续时机、短标签、颜色和说明。当前持续时机包含持续到消耗、下次行动、下次攻击、下次移动、下次受伤、释放者下次行动前。
 - `GameManager.gd` — 目前是空壳，未来的全局状态放这里。
@@ -25,7 +25,7 @@
 - 训练师通过战前准备选择 2 只宝可梦开场上场，默认火狐兽 + 藤藤兽；未上场的火狐兽、藤藤兽、水跃兽、电花鼠、冰羽兽会进入后备名单。训练师还会选择默认提取形态，默认水跃兽，开战时直接生效。战前准备、HUD、菜单悬停说明和日志会按“宝可梦 / 属性 / 定位 / 提取技能”展示提取形态。
 - 敌方包含火属性近战、草属性近战、水属性远程、飞属性高速远程、地属性慢速近战和草属性厚血大怪。
 - 训练师回合可消耗同步率使用固定指令卡：高速组件、小型护盾、火力插件、弱点标记、战术换位、属性校准；也可召唤或回收后备宝可梦。每个训练师回合最多结算 1 次同步率操作，移动和技能不占用这次机会。高速组件提供宝可梦下一次移动 +2，而不是补 AP。
-- 后备能力提取与召唤由 `Battle.gd` 的 `_pokemon_roster`、`_reserve_units`、`SUMMON_DEFS`、`EXTRACT_DEFS` 和 `_trainer_extract_id` 管理。战前默认提取免费生效；战斗中再次提取消耗 100 同步率。召唤和战斗中提取都需要对应宝可梦仍在后备中；召唤会让它离开后备，当前提取形态会占用对应后备，使它暂时不可召唤。切换到其他提取形态后，旧来源恢复可召唤。提取后训练师会切换属性，并把技能列表替换为对应宝可梦技能，直到下一次提取。`EXTRACT_DEFS` 同时提供 `element_label`、`role`、`skill_name` 作为 UI 展示源，避免提取读起来像单纯换皮指令卡。
+- 后备能力提取与召唤由 `Battle.gd` 的 `_pokemon_roster`、`_reserve_units`、`SUMMON_DEFS`、`EXTRACT_DEFS`、`_summon_count` 和 `_trainer_extract_id` 管理。战前默认提取免费生效；战斗中再次提取消耗 100 同步率。额外召唤按本场已成功召唤次数递增费用：100、160、220；回收不会降低下一次召唤费用。召唤和战斗中提取都需要对应宝可梦仍在后备中；召唤会让它离开后备，当前提取形态会占用对应后备，使它暂时不可召唤。切换到其他提取形态后，旧来源恢复可召唤。提取后训练师会切换属性，并把技能列表替换为对应宝可梦技能，直到下一次提取。`EXTRACT_DEFS` 同时提供 `element_label`、`role`、`skill_name` 作为 UI 展示源，避免提取读起来像单纯换皮指令卡。
 - 同步率显示在战斗 UI 上，初始为 100；会随行动自然回复，也会因训练师/宝可梦攻击而增加；自然回复最多补到 100，主动收益可以超过 100。HUD 常驻显示主要获得规则，每次实际获得同步率时，HUD 附近会显示短暂的 `+同步率` 反馈。
 - 战斗内暂不做捕捉或封印。厚血大怪作为高血量压力目标存在，用来验证属性克制、指令卡和换位/校准等同步率操作。
 - 厚血大怪有低频蓄力攻击。蓄力时会在地图上显示预警格，下一次大怪行动时对预警格内的己方单位造成较低伤害。
@@ -47,8 +47,8 @@
 
 ## 单位（`units/`）
 - `Unit.gd`（`class_name Unit`）— 运行时状态：`current_hp`、`current_ap`、`grid_pos`、`has_acted`、`has_moved`、护盾、下次攻击强化、弱点标记、属性校准、下次移动加成、上一次攻击者、蓄力预警格。提供 `take_damage()`、`heal()`、护盾、属性伤害倍率与状态消费等战斗接口。视觉表现由代码动态创建的 `ColorRect`、血条、名称 `Label` 和小状态条节点充当（美术资源到位前的占位符）。阵营色固定为我方柔和蓝、敌方柔和红、中立/野生柔和黄，受伤时会闪白并显示短暂伤害数字。
-- `UnitData.gd`（`class_name UnitData`，继承 `Resource`）— 静态数据：属性、颜色、技能列表、主元素属性、元素属性列表。`element_type` 保留为主属性兼容字段，`element_types` 用于未来双属性；为空时回退到主属性。旧实例位于 `units/data/tres/`，MVP 样板战当前由 `Battle.gd` 动态生成。`max_stability` 字段暂时保留但当前 MVP 不展示也不参与结算。
-- `UnitAI.gd`（`class_name UnitAI`，继承 `RefCounted`）— 无状态静态 AI。`run()` 按反击、属性克制、低血、距离和敌人属性身份评分选目标；近战会逼近目标，远程会倾向站在射程内而不是贴脸。厚血大怪每隔数次行动可能进入蓄力状态，蓄力目标会优先选择能覆盖更多我方单位的位置，下一次行动结算预警格伤害。AI 不直接操作 UI，而是返回行动日志文本，由 `Battle.gd` 统一展示。
+- `UnitData.gd`（`class_name UnitData`，继承 `Resource`）— 静态数据：属性、颜色、技能列表、主元素属性、元素属性列表和 `ai_profile`。`element_type` 保留为主属性兼容字段，`element_types` 用于未来双属性；为空时回退到主属性。旧实例位于 `units/data/tres/`，MVP 样板战当前由 `Battle.gd` 动态生成。`max_stability` 字段暂时保留但当前 MVP 不展示也不参与结算。
+- `UnitAI.gd`（`class_name UnitAI`，继承 `RefCounted`）— 无状态静态 AI。`run()` 根据 `UnitData.ai_profile` 调整目标评分权重：猎手型偏低血/斩杀，克制型偏属性克制，守卫型偏最近目标，压制型偏训练师/支援/带增益单位，范围型偏覆盖更多单位。近战会逼近目标，远程会倾向站在射程内而不是贴脸。厚血大怪每隔数次行动可能进入蓄力状态，蓄力目标会优先选择能覆盖更多我方单位的位置，下一次行动结算预警格伤害。AI 不直接操作 UI，而是返回行动日志文本，由 `Battle.gd` 统一展示。
 
 ## 技能（`skills/`）
 - `SkillData.gd`（`class_name SkillData`，继承 `Resource`）— 字段：`skill_name`、`damage`、`atk_range`、行动条内部结算值 `ap_cost`、元素属性、是否控制技能、`area_radius`、`effect_type`。MVP 中大部分技能为标准行动 `ap_cost=100`，不显示成本提示；少量快招/重招才显示“下次行动提前/推后 X%”。`effect_type=DAMAGE` 表示攻击敌人，`HEAL` 表示治疗友方。`area_radius=0` 表示单体，`>0` 表示目标格周围菱形范围。旧实例位于 `skills/tres/`，MVP 样板战当前由 `Battle.gd` 动态生成。`stability_damage` 字段暂时保留但当前 MVP 不展示也不结算。

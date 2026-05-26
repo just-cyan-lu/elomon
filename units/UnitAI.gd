@@ -194,7 +194,7 @@ static func _get_charge_cells(center: Vector2i, radius: int, grid_manager: GridM
 				result.append(pos)
 	return result
 
-# 评分选目标：反击、属性克制、低血和距离共同决定敌方攻击意图。
+# 评分选目标：按 AI profile 调整反击、克制、低血、斩杀和距离权重。
 static func _find_target(enemy: Unit, all_units: Array[Unit]) -> Unit:
 	var best_target: Unit = null
 	var best_score := -INF
@@ -208,25 +208,146 @@ static func _find_target(enemy: Unit, all_units: Array[Unit]) -> Unit:
 	return best_target
 
 static func _score_target(enemy: Unit, target: Unit) -> float:
+	var weights := _get_profile_weights(enemy.data.ai_profile)
 	var score := 0.0
 	var dist := _distance(enemy.grid_pos, target.grid_pos)
-	score -= float(dist) * 2.0
+	score -= float(dist) * float(weights["distance"])
 	if enemy.last_attacker == target:
-		score += 34.0
+		score += float(weights["revenge"])
 	var hp_ratio := 1.0
 	if target.data.max_hp > 0:
 		hp_ratio = float(target.current_hp) / float(target.data.max_hp)
-	score += (1.0 - hp_ratio) * 18.0
+	score += (1.0 - hp_ratio) * float(weights["low_hp"])
+	if _estimate_damage(enemy, target) >= target.current_hp:
+		score += float(weights["kill"])
 	if target.data.unit_type == Enums.UnitType.PLAYER:
-		score += 4.0
+		score += float(weights["trainer"])
+	if _is_support_target(target):
+		score += float(weights["support"])
+	if _has_tactical_status(target):
+		score += float(weights["buffed"])
 	var attack_type := _get_primary_attack_type(enemy)
 	var type_multiplier := TypeChartUtil.get_damage_multiplier(attack_type, target.data.get_element_types())
 	if type_multiplier > 1.0:
-		score += 22.0 * type_multiplier
+		score += float(weights["type_advantage"]) * type_multiplier
 	elif type_multiplier < 1.0:
-		score -= 10.0
-	score += _get_role_target_bonus(enemy, target)
+		score -= float(weights["type_resist"])
+	score += _get_role_target_bonus(enemy, target) * float(weights["role_bonus_scale"])
 	return score
+
+static func _get_profile_weights(profile: int) -> Dictionary:
+	match profile:
+		Enums.AIProfile.HUNTER:
+			return {
+				"distance": 1.35,
+				"revenge": 10.0,
+				"low_hp": 42.0,
+				"kill": 58.0,
+				"type_advantage": 12.0,
+				"type_resist": 8.0,
+				"trainer": 8.0,
+				"support": 14.0,
+				"buffed": 8.0,
+				"role_bonus_scale": 0.8,
+				"area": 18.0
+			}
+		Enums.AIProfile.ELEMENTAL:
+			return {
+				"distance": 1.7,
+				"revenge": 18.0,
+				"low_hp": 12.0,
+				"kill": 24.0,
+				"type_advantage": 34.0,
+				"type_resist": 18.0,
+				"trainer": 2.0,
+				"support": 4.0,
+				"buffed": 4.0,
+				"role_bonus_scale": 1.3,
+				"area": 18.0
+			}
+		Enums.AIProfile.GUARDIAN:
+			return {
+				"distance": 3.3,
+				"revenge": 12.0,
+				"low_hp": 8.0,
+				"kill": 18.0,
+				"type_advantage": 16.0,
+				"type_resist": 8.0,
+				"trainer": 4.0,
+				"support": 2.0,
+				"buffed": 4.0,
+				"role_bonus_scale": 0.7,
+				"area": 22.0
+			}
+		Enums.AIProfile.SUPPRESSOR:
+			return {
+				"distance": 1.5,
+				"revenge": 10.0,
+				"low_hp": 18.0,
+				"kill": 34.0,
+				"type_advantage": 14.0,
+				"type_resist": 8.0,
+				"trainer": 24.0,
+				"support": 22.0,
+				"buffed": 18.0,
+				"role_bonus_scale": 0.8,
+				"area": 18.0
+			}
+		Enums.AIProfile.AREA:
+			return {
+				"distance": 1.4,
+				"revenge": 10.0,
+				"low_hp": 10.0,
+				"kill": 22.0,
+				"type_advantage": 14.0,
+				"type_resist": 6.0,
+				"trainer": 2.0,
+				"support": 6.0,
+				"buffed": 6.0,
+				"role_bonus_scale": 0.7,
+				"area": 42.0
+			}
+		_:
+			return {
+				"distance": 2.0,
+				"revenge": 30.0,
+				"low_hp": 18.0,
+				"kill": 30.0,
+				"type_advantage": 22.0,
+				"type_resist": 10.0,
+				"trainer": 4.0,
+				"support": 6.0,
+				"buffed": 6.0,
+				"role_bonus_scale": 1.0,
+				"area": 24.0
+			}
+
+static func _estimate_damage(enemy: Unit, target: Unit) -> int:
+	if enemy.data.skills.is_empty():
+		return 0
+	var skill: SkillData = enemy.data.skills[0]
+	var actual: int = max(skill.damage + enemy.data.attack - target.data.defense, 1)
+	actual = TypeChartUtil.apply_damage_multiplier(actual, skill.element_type, target.data.get_element_types())
+	if target.weak_marked:
+		actual = max(int(round(float(actual) * 1.5)), 1)
+	if target.shield > 0:
+		actual = max(actual - target.shield, 0)
+	return actual
+
+static func _is_support_target(target: Unit) -> bool:
+	if target.data.unit_type == Enums.UnitType.PLAYER:
+		return true
+	for skill_resource in target.data.skills:
+		var skill: SkillData = skill_resource
+		if skill.effect_type == SkillData.EffectType.HEAL:
+			return true
+	return false
+
+static func _has_tactical_status(target: Unit) -> bool:
+	return target.shield > 0 \
+		or target.power_boost_next_attack \
+		or target.calibrated_attack_type != Enums.ElementType.NONE \
+		or target.bonus_move_range > 0
 
 static func _get_role_target_bonus(enemy: Unit, target: Unit) -> float:
 	var attack_type := _get_primary_attack_type(enemy)
@@ -264,6 +385,8 @@ static func _get_primary_attack_type(unit: Unit) -> int:
 	return unit.data.element_type
 
 static func _get_targeting_hint(enemy: Unit, target: Unit) -> String:
+	if _estimate_damage(enemy, target) >= target.current_hp:
+		return "finisher"
 	if enemy.last_attacker == target:
 		return "retaliate"
 	var attack_type := _get_primary_attack_type(enemy)
@@ -275,17 +398,28 @@ static func _get_targeting_hint(enemy: Unit, target: Unit) -> String:
 		hp_ratio = float(target.current_hp) / float(target.data.max_hp)
 	if hp_ratio <= 0.35:
 		return "low_hp"
-	return "nearest_pressure"
+	match enemy.data.ai_profile:
+		Enums.AIProfile.GUARDIAN:
+			return "nearest_guard"
+		Enums.AIProfile.HUNTER:
+			return "hunter_pressure"
+		Enums.AIProfile.SUPPRESSOR:
+			return "suppression"
+		Enums.AIProfile.AREA:
+			return "area_setup"
+		_:
+			return "nearest_pressure"
 
 static func _find_charge_target(enemy: Unit, all_units: Array[Unit], fallback: Unit) -> Unit:
 	var best_target := fallback
 	var best_score := -INF
+	var weights := _get_profile_weights(enemy.data.ai_profile)
 	for unit in all_units:
 		if not unit.is_ally() or not unit.is_alive():
 			continue
 		if _distance(enemy.grid_pos, unit.grid_pos) > enemy.data.charge_range:
 			continue
-		var score := float(_count_allies_in_radius(unit.grid_pos, enemy.data.charge_radius, all_units)) * 30.0
+		var score := float(_count_allies_in_radius(unit.grid_pos, enemy.data.charge_radius, all_units)) * float(weights["area"])
 		score += _score_target(enemy, unit)
 		if score > best_score:
 			best_score = score

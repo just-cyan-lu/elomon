@@ -31,6 +31,16 @@ enum TerrainType {
 	GRASS
 }
 
+# 敌方 AI 战术偏好。具体权重由 UnitAI.gd 解释。
+enum AIProfile {
+	BALANCED,   # 通用：反击、克制、低血和距离都适中
+	HUNTER,     # 猎手：优先击杀低血/可斩杀目标，适合突袭怪
+	ELEMENTAL,  # 克制：优先追打被自己属性克制的目标
+	GUARDIAN,   # 守卫：优先攻击最近目标，行为稳定可预测
+	SUPPRESSOR, # 压制：优先训练师、治疗/远程/带增益的单位
+	AREA        # 范围：优先让范围技能覆盖更多单位
+}
+
 # 战斗整体状态（Battle.gd 用）
 enum BattleState {
 	WAITING,       # CTB 跑条推进中，等待下一个单位行动力满
