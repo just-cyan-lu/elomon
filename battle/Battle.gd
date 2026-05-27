@@ -52,14 +52,14 @@ const CARD_DEFS := {
 }
 const SUMMON_DEFS := {
 	"fire": {"name": "召唤火狐兽", "reserve": "火狐兽", "short": "召火", "effect": "火属性输出型后备，擅长压制草/冰属性和打爆发。"},
-	"grass": {"name": "召唤藤藤兽", "reserve": "藤藤兽", "short": "召藤", "effect": "草属性控制型后备，擅长牵制水/地属性和限制走位。"},
+	"grass": {"name": "召唤藤藤兽", "reserve": "藤藤兽", "short": "召藤", "effect": "草属性后备，擅长草系远程和地属性根系控制。"},
 	"water": {"name": "召唤水跃兽", "reserve": "水跃兽", "short": "召水", "effect": "水属性支援型后备，能治疗友方并压制火/地属性。"},
-	"electric": {"name": "召唤电花鼠", "reserve": "电花鼠", "short": "召电", "effect": "雷属性高速后备，擅长处理中远程水/飞属性目标。"},
+	"electric": {"name": "召唤电花鼠", "reserve": "电花鼠", "short": "召电", "effect": "雷属性高速后备，擅长处理中远程水/飞属性目标，并有飞属性短程快招。"},
 	"ice": {"name": "召唤冰羽兽", "reserve": "冰羽兽", "short": "召冰", "effect": "冰属性压制型后备，擅长克制草/飞/地属性目标。"},
 }
 const EXTRACT_DEFS := {
 	"fire": {"name": "提取火狐兽", "reserve": "火狐兽", "element_label": "火", "role": "输出", "skill_name": "火花", "skill_index": 0, "effect": "训练师切换为火属性，技能替换为火花；克制草/冰，被水/地属性压制。"},
-	"grass": {"name": "提取藤藤兽", "reserve": "藤藤兽", "element_label": "草", "role": "控制", "skill_name": "缠绕", "skill_index": 1, "effect": "训练师切换为草属性，技能替换为缠绕；被火系克制，抵抗水系。"},
+	"grass": {"name": "提取藤藤兽", "reserve": "藤藤兽", "element_label": "草", "role": "控制", "skill_name": "根缠", "skill_index": 1, "effect": "训练师切换为草属性，技能替换为地属性根缠；被火系克制，抵抗水系。"},
 	"water": {"name": "提取水跃兽", "reserve": "水跃兽", "element_label": "水", "role": "治疗", "skill_name": "水愈", "skill_index": 1, "effect": "训练师切换为水属性，技能替换为水愈；抵抗火系，被草系克制。"},
 	"electric": {"name": "提取电花鼠", "reserve": "电花鼠", "element_label": "雷", "role": "高速", "skill_name": "电弧", "skill_index": 0, "effect": "训练师切换为雷属性，技能替换为电弧；克制水/飞，被地属性压制。"},
 	"ice": {"name": "提取冰羽兽", "reserve": "冰羽兽", "element_label": "冰", "role": "压制", "skill_name": "冰针", "skill_index": 0, "effect": "训练师切换为冰属性，技能替换为冰针；克制草/飞/地，被火属性压制。"},
@@ -607,11 +607,11 @@ func _spawn_units() -> void:
 	var fire_skill := _make_skill("火花", 26, 2, 100, Enums.ElementType.FIRE, 20, false, 0, SkillData.EffectType.DAMAGE, "主攻", "稳定火属性单体。")
 	var flame_line := _make_skill("烈焰爆", 34, 3, 120, Enums.ElementType.FIRE, 35, false, 1, SkillData.EffectType.DAMAGE, "范围重招", "目标格周围 1 格范围。")
 	var vine_skill := _make_skill("藤鞭", 24, 3, 100, Enums.ElementType.GRASS, 18, false, 0, SkillData.EffectType.DAMAGE, "远程主攻", "草属性远程单体。")
-	var snare_skill := _make_skill("缠绕", 12, 3, 80, Enums.ElementType.GRASS, 25, true, 0, SkillData.EffectType.DAMAGE, "快控", "轻伤害，行动节奏更快。", 1)
+	var snare_skill := _make_skill("根缠", 12, 3, 80, Enums.ElementType.GROUND, 25, true, 0, SkillData.EffectType.DAMAGE, "地系快控", "地属性根系控制，行动节奏更快。", 1)
 	var water_skill := _make_skill("水泡", 24, 3, 100, Enums.ElementType.WATER, 14, false, 0, SkillData.EffectType.DAMAGE, "远程主攻", "水属性远程单体。")
 	var mend_skill := _make_skill("水愈", 22, 3, 100, Enums.ElementType.WATER, 0, false, 0, SkillData.EffectType.HEAL, "治疗", "回复自己或友方 HP。")
 	var spark_skill := _make_skill("电弧", 23, 3, 100, Enums.ElementType.ELECTRIC, 16, false, 0, SkillData.EffectType.DAMAGE, "远程主攻", "雷属性远程单体。")
-	var quick_skill := _make_skill("疾闪", 14, 2, 80, Enums.ElementType.ELECTRIC, 8, false, 0, SkillData.EffectType.DAMAGE, "快招", "轻伤害，行动节奏更快。")
+	var quick_skill := _make_skill("掠空闪", 10, 2, 80, Enums.ElementType.FLYING, 8, false, 0, SkillData.EffectType.DAMAGE, "飞系快招", "飞属性短程快招，行动节奏更快。")
 	var ice_skill := _make_skill("冰针", 24, 3, 100, Enums.ElementType.ICE, 18, false, 0, SkillData.EffectType.DAMAGE, "远程主攻", "冰属性远程单体。")
 	ice_skill.effects.append(SkillEffectDataUtil.make_add_status(
 		StatusTypeUtil.StatusId.DEFENSE_MOD,
@@ -635,11 +635,11 @@ func _spawn_units() -> void:
 	var fire_data := _make_unit_data("火狐兽", Enums.UnitType.PLAYER_POKEMON, 105, 18, 5, 58, 4, Color(0.95, 0.42, 0.18), Enums.ElementType.FIRE, [fire_skill, flame_line])
 	_set_unit_content(fire_data, "火系爆发 / 范围", "火花为标准行动；烈焰爆为范围重招，自身下次行动推后 20%。")
 	var grass_data := _make_unit_data("藤藤兽", Enums.UnitType.PLAYER_POKEMON, 95, 15, 5, 48, 4, Color(0.25, 0.75, 0.36), Enums.ElementType.GRASS, [vine_skill, snare_skill])
-	_set_unit_content(grass_data, "草系牵制 / 快控", "藤鞭为标准行动；缠绕为快控，命中后移动-1。")
+	_set_unit_content(grass_data, "草系远程 / 地系快控", "藤鞭为草系标准远程；根缠为地属性快控，命中后移动-1。")
 	var water_data := _make_unit_data("水跃兽", Enums.UnitType.PLAYER_POKEMON, 88, 13, 4, 52, 4, Color(0.24, 0.58, 0.86), Enums.ElementType.WATER, [water_skill, mend_skill])
 	_set_unit_content(water_data, "水系支援 / 治疗", "水泡为水系远程攻击；水愈回复自己或友方 HP。")
 	var spark_data := _make_unit_data("电花鼠", Enums.UnitType.PLAYER_POKEMON, 76, 16, 3, 68, 5, Color(0.85, 0.78, 0.34), Enums.ElementType.ELECTRIC, [spark_skill, quick_skill])
-	_set_unit_content(spark_data, "雷系高速 / 收割", "电弧为标准远程；疾闪为快招，自身下次行动提前 20%。")
+	_set_unit_content(spark_data, "雷系高速 / 飞系快招", "电弧为雷系标准远程；掠空闪为飞属性短程快招，自身下次行动提前 20%。")
 	var ice_data := _make_unit_data("冰羽兽", Enums.UnitType.PLAYER_POKEMON, 82, 15, 4, 54, 4, Color(0.58, 0.82, 0.92), Enums.ElementType.ICE, [ice_skill, frost_skill])
 	_set_unit_content(ice_data, "冰系压制 / 重控", "冰针会让目标防御-3，下次受伤后消耗；霜缚会让目标移动-2，并使目标行动条后退 20%。")
 	_pokemon_roster.clear()
