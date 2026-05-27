@@ -34,7 +34,10 @@ const SCRIPT_PATH := "res://skills/SkillEffectData.gd"
 @export var value: float = 0.0
 @export var status_id: int = StatusTypeUtil.StatusId.MOVE_PENALTY
 @export var duration_type: int = StatusTypeUtil.DurationType.NEXT_ACTION
-@export var stack_mode: StackMode = StackMode.REPLACE_STRONGER
+@export var stack_mode: int = StatusTypeUtil.StackMode.REPLACE_STRONGER
+@export var stacks: int = 1
+@export var max_stacks: int = 1
+@export var trigger_count: int = 1
 @export var chance: float = 1.0
 @export var effect_note: String = ""
 
@@ -42,7 +45,11 @@ static func make_add_status(
 	status: int,
 	status_value: float,
 	duration: int = StatusTypeUtil.DurationType.NEXT_ACTION,
-	target: int = TargetKind.TARGET
+	target: int = TargetKind.TARGET,
+	status_stack_mode: int = StatusTypeUtil.StackMode.REPLACE_STRONGER,
+	status_stacks: int = 1,
+	status_max_stacks: int = 1,
+	status_trigger_count: int = 1
 ) -> Resource:
 	var effect = load(SCRIPT_PATH).new()
 	effect.effect_type = EffectType.ADD_STATUS
@@ -50,6 +57,10 @@ static func make_add_status(
 	effect.status_id = status
 	effect.value = status_value
 	effect.duration_type = duration
+	effect.stack_mode = status_stack_mode
+	effect.stacks = max(status_stacks, 1)
+	effect.max_stacks = max(status_max_stacks, 1)
+	effect.trigger_count = max(status_trigger_count, 1)
 	return effect
 
 static func make_ap_delta(ap_delta: float, target: int = TargetKind.TARGET) -> Resource:
@@ -94,7 +105,9 @@ func _get_status_summary() -> String:
 		StatusTypeUtil.StatusId.ATTACK_MOD:
 			return "攻击%d" % get_value_int()
 		StatusTypeUtil.StatusId.DEFENSE_MOD:
-			return "防御%d" % get_value_int()
+			if get_value_int() < 0:
+				return "目标防御-%d" % abs(get_value_int())
+			return "目标防御+%d" % get_value_int()
 		StatusTypeUtil.StatusId.AP_REGEN_MOD:
 			return "AP回复%d%%" % get_value_int()
 		StatusTypeUtil.StatusId.POISON:

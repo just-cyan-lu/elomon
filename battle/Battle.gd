@@ -5,6 +5,7 @@ signal action_preview_updated(preview: Dictionary)
 
 const TypeChartUtil = preload("res://core/TypeChart.gd")
 const StatusTypeUtil = preload("res://core/StatusTypes.gd")
+const StatusResolverUtil = preload("res://core/StatusResolver.gd")
 const SkillEffectDataUtil = preload("res://skills/SkillEffectData.gd")
 const SkillEffectResolverUtil = preload("res://skills/SkillEffectResolver.gd")
 const CARD_RANGE := 3
@@ -612,6 +613,11 @@ func _spawn_units() -> void:
 	var spark_skill := _make_skill("电弧", 23, 3, 100, Enums.ElementType.ELECTRIC, 16, false, 0, SkillData.EffectType.DAMAGE, "远程主攻", "雷属性远程单体。")
 	var quick_skill := _make_skill("疾闪", 14, 2, 80, Enums.ElementType.ELECTRIC, 8, false, 0, SkillData.EffectType.DAMAGE, "快招", "轻伤害，行动节奏更快。")
 	var ice_skill := _make_skill("冰针", 24, 3, 100, Enums.ElementType.ICE, 18, false, 0, SkillData.EffectType.DAMAGE, "远程主攻", "冰属性远程单体。")
+	ice_skill.effects.append(SkillEffectDataUtil.make_add_status(
+		StatusTypeUtil.StatusId.DEFENSE_MOD,
+		-3.0,
+		StatusTypeUtil.DurationType.NEXT_DAMAGE_TAKEN
+	))
 	var frost_skill := _make_skill("霜缚", 16, 3, 100, Enums.ElementType.ICE, 24, true, 0, SkillData.EffectType.DAMAGE, "重控", "冰属性控制。", 2, 20.0)
 	var blade_skill := _make_skill("数据短刃", 14, 1, 100, Enums.ElementType.NONE, 8, false, 0, SkillData.EffectType.DAMAGE, "自卫", "训练师基础近战。")
 	var fire_bite_skill := _make_skill("火牙", 22, 1, 100, Enums.ElementType.FIRE, 10, false, 0, SkillData.EffectType.DAMAGE, "近战", "火属性近战。")
@@ -635,7 +641,7 @@ func _spawn_units() -> void:
 	var spark_data := _make_unit_data("电花鼠", Enums.UnitType.PLAYER_POKEMON, 76, 16, 3, 68, 5, Color(0.85, 0.78, 0.34), Enums.ElementType.ELECTRIC, [spark_skill, quick_skill])
 	_set_unit_content(spark_data, "雷系高速 / 收割", "电弧为标准远程；疾闪为快招，自身下次行动提前 20%。")
 	var ice_data := _make_unit_data("冰羽兽", Enums.UnitType.PLAYER_POKEMON, 82, 15, 4, 54, 4, Color(0.58, 0.82, 0.92), Enums.ElementType.ICE, [ice_skill, frost_skill])
-	_set_unit_content(ice_data, "冰系压制 / 重控", "冰针为标准远程；霜缚会让目标移动-2，并使目标行动条后退 20%。")
+	_set_unit_content(ice_data, "冰系压制 / 重控", "冰针会让目标防御-3，下次受伤后消耗；霜缚会让目标移动-2，并使目标行动条后退 20%。")
 	_pokemon_roster.clear()
 	_pokemon_roster["fire"] = fire_data
 	_pokemon_roster["grass"] = grass_data
@@ -872,6 +878,9 @@ func _on_unit_ready(unit: Unit) -> void:
 	_clear_extract_undo()
 	_tick_card_cooldowns()
 	_gain_sync(_get_natural_sync_gain_amount(), "自然回复", true)
+	StatusResolverUtil.trigger(_active_unit, StatusTypeUtil.TriggerTiming.ON_ACTION_START, {
+		"active_unit": _active_unit
+	})
 	if not is_instance_valid(_active_unit) or not _active_unit.is_alive():
 		if _battle_state != Enums.BattleState.BATTLE_OVER:
 			ctb_system.resume()
@@ -906,6 +915,9 @@ func _end_turn() -> void:
 	_commit_pending_turn_logs()
 	if _active_unit and is_instance_valid(_active_unit):
 		var ap_before := _active_unit.current_ap
+		StatusResolverUtil.trigger(_active_unit, StatusTypeUtil.TriggerTiming.ON_ACTION_END, {
+			"active_unit": _active_unit
+		})
 		_active_unit.consume_ap(_turn_ap_cost)
 		_active_unit.clear_action_move_penalty()
 		_emit_resource_event(
@@ -1220,6 +1232,10 @@ func _on_cell_clicked(grid_pos: Vector2i) -> void:
 				_active_unit.grid_pos = grid_pos
 				_active_unit.has_moved = true
 				_active_unit.consume_bonus_move()
+				StatusResolverUtil.trigger(_active_unit, StatusTypeUtil.TriggerTiming.AFTER_MOVE, {
+					"from_pos": from_pos,
+					"to_pos": grid_pos
+				})
 				var move_record := _make_battle_log_record(
 					"%s 移动 %s -> %s。" % [
 						_active_unit.data.unit_name,
@@ -1342,6 +1358,10 @@ func _return_to_skill_selection() -> void:
 		_show_tip("选择 %s 的目标。首次点击预览，确认后发动。" % skill.skill_name)
 
 func _execute_skill_preview(attacker: Unit, skill: SkillData, target_pos: Vector2i, entries: Array[Dictionary]) -> void:
+	StatusResolverUtil.trigger(attacker, StatusTypeUtil.TriggerTiming.ON_SKILL_USE, {
+		"skill": skill,
+		"target_pos": target_pos
+	})
 	if skill.effect_type == SkillData.EffectType.HEAL:
 		var total_heal := 0
 		for entry in entries:
@@ -1389,6 +1409,11 @@ func _execute_skill_preview(attacker: Unit, skill: SkillData, target_pos: Vector
 		var actual := target.take_damage(entry["raw_damage"], attacker, attack_type)
 		total_damage += actual
 		var applied_effects := _apply_skill_effects_to_target(attacker, skill, target)
+		StatusResolverUtil.trigger(attacker, StatusTypeUtil.TriggerTiming.AFTER_DEAL_DAMAGE, {
+			"skill": skill,
+			"target": target,
+			"hp_damage": actual
+		})
 		var log_parts: Array[String] = [
 			"%s 使用 %s -> %s" % [
 				attacker.data.unit_name,
@@ -1430,6 +1455,7 @@ func _execute_skill_preview(attacker: Unit, skill: SkillData, target_pos: Vector
 				"calibrated_attack_type": attack_type if calibrated_attack_consumed else Enums.ElementType.NONE,
 				"effects": applied_effects,
 				"move_penalty": _get_applied_move_penalty(applied_effects),
+				"defense_delta": _get_applied_defense_delta(applied_effects),
 				"target_ap_delay": abs(_get_applied_ap_delta(applied_effects)),
 				"target_ap_delay_percent": _get_applied_ap_delta_percent(applied_effects),
 				"target_defeated": target.current_hp <= 0
@@ -1488,6 +1514,13 @@ func _get_applied_move_penalty(effects: Array[Dictionary]) -> int:
 		if int(effect.get("status_id", -1)) == StatusTypeUtil.StatusId.MOVE_PENALTY:
 			return int(effect.get("move_penalty", 0))
 	return 0
+
+func _get_applied_defense_delta(effects: Array[Dictionary]) -> int:
+	var total := 0
+	for effect in effects:
+		if int(effect.get("status_id", -1)) == StatusTypeUtil.StatusId.DEFENSE_MOD:
+			total += int(effect.get("defense_delta", 0))
+	return total
 
 func _get_applied_ap_delta(effects: Array[Dictionary]) -> float:
 	var total := 0.0
@@ -2463,6 +2496,9 @@ func _get_unit_status_summary(unit: Unit) -> String:
 		statuses.append("移-%d" % unit.move_penalty_next_action)
 	if not unit.pending_charge_cells.is_empty():
 		statuses.append(StatusTypeUtil.get_short(StatusTypeUtil.StatusId.CHARGE_WARNING))
+	for instance in unit.status_instances:
+		if instance != null:
+			statuses.append(instance.get_badge())
 	return _join_strings(statuses, "、")
 
 func _save_turn_start_state(unit: Unit) -> void:
@@ -2480,7 +2516,8 @@ func _save_turn_start_state(unit: Unit) -> void:
 		"weak_marked": unit.weak_marked,
 		"calibrated_attack_type": unit.calibrated_attack_type,
 		"bonus_move_range": unit.bonus_move_range,
-		"move_penalty_next_action": unit.move_penalty_next_action
+		"move_penalty_next_action": unit.move_penalty_next_action,
+		"status_instances": unit.get_status_instance_snapshots()
 	}
 
 func _undo_active_unit_move() -> void:
@@ -2978,6 +3015,7 @@ func _build_skill_preview(attacker: Unit, skill: SkillData, target_pos: Vector2i
 		if not effect_previews.is_empty():
 			damage_entry["effects"] = effect_previews
 			damage_entry["move_penalty"] = _get_applied_move_penalty(effect_previews)
+			damage_entry["defense_delta"] = _get_applied_defense_delta(effect_previews)
 			damage_entry["target_ap_delay"] = abs(_get_applied_ap_delta(effect_previews))
 			damage_entry["target_ap_delay_percent"] = _get_applied_ap_delta_percent(effect_previews)
 		result.append(damage_entry)
@@ -3007,6 +3045,8 @@ func _build_action_preview(attacker: Unit, skill: SkillData, entries: Array[Dict
 			target_preview["type_multiplier"] = TypeChartUtil.get_damage_multiplier(attack_type, target.data.get_element_types())
 			if entry.has("move_penalty"):
 				target_preview["move_penalty"] = int(entry["move_penalty"])
+			if entry.has("defense_delta"):
+				target_preview["defense_delta"] = int(entry["defense_delta"])
 			if entry.has("target_ap_delay"):
 				target_preview["target_ap_delay"] = float(entry["target_ap_delay"])
 				target_preview["target_ap_delay_percent"] = int(entry.get("target_ap_delay_percent", _get_target_ap_delay_percent(float(entry["target_ap_delay"]))))
@@ -3054,7 +3094,9 @@ func _get_skill_attack_type(attacker: Unit, skill: SkillData) -> int:
 	return skill.element_type
 
 func _get_expected_hp_damage(target: Unit, raw_damage: int, attack_type: int) -> int:
-	var damage_after_defense: int = max(raw_damage - target.data.defense, 1)
+	var defense_delta := target.get_status_modifier(StatusTypeUtil.StatusId.DEFENSE_MOD)
+	var effective_defense: int = max(target.data.defense + defense_delta, 0)
+	var damage_after_defense: int = max(raw_damage - effective_defense, 1)
 	damage_after_defense = TypeChartUtil.apply_damage_multiplier(damage_after_defense, attack_type, target.data.get_element_types())
 	if target.weak_marked:
 		damage_after_defense = max(int(round(float(damage_after_defense) * 1.5)), 1)
@@ -3111,6 +3153,10 @@ func _show_preview_panel(attacker: Unit, skill: SkillData, entries: Array[Dictio
 			modifiers.append("护盾吸收")
 		if entry.has("move_penalty"):
 			modifiers.append("移-%d" % int(entry["move_penalty"]))
+		if entry.has("defense_delta") and int(entry["defense_delta"]) != 0:
+			var defense_delta := int(entry["defense_delta"])
+			var sign := "+" if defense_delta > 0 else "-"
+			modifiers.append("防%s%d" % [sign, abs(defense_delta)])
 		if entry.has("target_ap_delay"):
 			modifiers.append("行动-%d%%" % int(entry.get("target_ap_delay_percent", 0)))
 		var modifier_text := ""
@@ -3143,6 +3189,8 @@ func _show_preview_markers(entries: Array[Dictionary]) -> void:
 			marker_parts.append("-" + str(entry["hp_damage"]))
 			if entry.has("move_penalty"):
 				marker_parts.append("缚")
+			if entry.has("defense_delta") and int(entry["defense_delta"]) != 0:
+				marker_parts.append("防-%d" % abs(int(entry["defense_delta"])))
 			if entry.has("target_ap_delay"):
 				marker_parts.append("迟%d%%" % int(entry.get("target_ap_delay_percent", 0)))
 			marker.modulate = Color(1.0, 0.82, 0.32, 1.0)

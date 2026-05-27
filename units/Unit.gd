@@ -3,6 +3,8 @@ extends Node2D
 
 const TypeChartUtil = preload("res://core/TypeChart.gd")
 const StatusTypeUtil = preload("res://core/StatusTypes.gd")
+const StatusInstanceUtil = preload("res://core/StatusInstance.gd")
+const StatusResolverUtil = preload("res://core/StatusResolver.gd")
 
 # 信号
 signal died(unit: Unit)
@@ -26,6 +28,7 @@ var weak_marked: bool = false
 var calibrated_attack_type: int = Enums.ElementType.NONE
 var bonus_move_range: int = 0
 var move_penalty_next_action: int = 0
+var status_instances: Array[Resource] = []
 var last_attacker: Unit = null
 var ai_turn_count: int = 0
 var pending_charge_cells: Array[Vector2i] = []
@@ -135,7 +138,16 @@ func clear_pending_charge_cells() -> void:
 
 # 受到伤害
 func take_damage(raw_damage: int, attacker: Unit = null, attack_type: int = Enums.ElementType.NONE) -> int:
-	var actual: int = max(raw_damage - data.defense, 1)
+	var damage_context := {
+		"attacker": attacker,
+		"target": self,
+		"raw_damage": raw_damage,
+		"attack_type": attack_type,
+		"defense_delta": 0
+	}
+	StatusResolverUtil.trigger(self, StatusTypeUtil.TriggerTiming.BEFORE_TAKE_DAMAGE, damage_context)
+	var effective_defense: int = max(data.defense + int(damage_context.get("defense_delta", 0)), 0)
+	var actual: int = max(raw_damage - effective_defense, 1)
 	actual = TypeChartUtil.apply_damage_multiplier(actual, attack_type, data.get_element_types())
 	var consumed_status := false
 	if weak_marked:
@@ -150,12 +162,16 @@ func take_damage(raw_damage: int, attacker: Unit = null, attack_type: int = Enum
 	if actual <= 0:
 		_update_label()
 		_update_hp_bar()
+		damage_context["hp_damage"] = 0
+		StatusResolverUtil.trigger(self, StatusTypeUtil.TriggerTiming.AFTER_TAKE_DAMAGE, damage_context)
 		if consumed_status:
 			emit_signal("status_changed", self)
 		return 0
 	if attacker != null and is_instance_valid(attacker):
 		last_attacker = attacker
 	current_hp = max(current_hp - actual, 0)
+	damage_context["hp_damage"] = actual
+	StatusResolverUtil.trigger(self, StatusTypeUtil.TriggerTiming.AFTER_TAKE_DAMAGE, damage_context)
 	emit_signal("hp_changed", current_hp, data.max_hp)
 	_update_hp_bar()
 	_spawn_damage_number(actual)
@@ -224,6 +240,47 @@ func consume_calibrated_attack_type() -> void:
 	_update_label()
 	emit_signal("status_changed", self)
 
+func add_status_instance(instance: Resource) -> Resource:
+	if instance == null:
+		return null
+	for existing in status_instances:
+		if existing != null and existing.can_merge(instance):
+			existing.merge_from(instance)
+			_update_label()
+			emit_signal("status_changed", self)
+			return existing
+	status_instances.append(instance)
+	_update_label()
+	emit_signal("status_changed", self)
+	return instance
+
+func remove_status_instance(instance: Resource) -> void:
+	if instance == null:
+		return
+	status_instances.erase(instance)
+	_update_label()
+	emit_signal("status_changed", self)
+
+func get_status_modifier(status_id: int) -> int:
+	var total := 0.0
+	for instance in status_instances:
+		if instance != null and int(instance.status_id) == status_id:
+			total += instance.get_total_value()
+	return int(round(total))
+
+func get_status_instance_snapshots() -> Array[Dictionary]:
+	var snapshots: Array[Dictionary] = []
+	for instance in status_instances:
+		if instance != null:
+			snapshots.append(instance.to_snapshot())
+	return snapshots
+
+func restore_status_instances(snapshots: Array) -> void:
+	status_instances.clear()
+	for snapshot in snapshots:
+		if snapshot is Dictionary:
+			status_instances.append(StatusInstanceUtil.from_snapshot(snapshot))
+
 func restore_turn_snapshot(snapshot: Dictionary) -> void:
 	current_hp = snapshot["current_hp"]
 	shield = snapshot["shield"]
@@ -234,6 +291,7 @@ func restore_turn_snapshot(snapshot: Dictionary) -> void:
 	calibrated_attack_type = int(snapshot.get("calibrated_attack_type", calibrated_attack_type))
 	bonus_move_range = snapshot["bonus_move_range"]
 	move_penalty_next_action = int(snapshot.get("move_penalty_next_action", move_penalty_next_action))
+	restore_status_instances(snapshot.get("status_instances", []))
 	_update_hp_bar()
 	_update_label()
 	emit_signal("hp_changed", current_hp, data.max_hp)
@@ -282,6 +340,9 @@ func get_status_entries() -> Array[Dictionary]:
 		))
 	if not pending_charge_cells.is_empty():
 		entries.append(StatusTypeUtil.make_entry(StatusTypeUtil.StatusId.CHARGE_WARNING))
+	for instance in status_instances:
+		if instance != null:
+			entries.append(instance.to_entry())
 	return entries
 
 func _update_status_bar() -> void:

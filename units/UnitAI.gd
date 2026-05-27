@@ -2,6 +2,8 @@ class_name UnitAI
 extends RefCounted   # 不是节点，是纯逻辑类
 
 const TypeChartUtil = preload("res://core/TypeChart.gd")
+const StatusTypeUtil = preload("res://core/StatusTypes.gd")
+const StatusResolverUtil = preload("res://core/StatusResolver.gd")
 const SkillEffectDataUtil = preload("res://skills/SkillEffectData.gd")
 const SkillEffectResolverUtil = preload("res://skills/SkillEffectResolver.gd")
 const CHARGE_ACTION_AP_COST := 100.0
@@ -66,6 +68,10 @@ static func run(enemy: Unit, grid_manager: GridManager, all_units: Array[Unit]) 
 		grid_manager.move_unit(enemy, enemy.grid_pos, best_cell)
 		enemy.grid_pos = best_cell
 		enemy.consume_bonus_move()
+		StatusResolverUtil.trigger(enemy, StatusTypeUtil.TriggerTiming.AFTER_MOVE, {
+			"from_pos": from_pos,
+			"to_pos": best_cell
+		})
 		logs.append(_make_log_record(
 			"%s 移动 %s -> %s。" % [
 				enemy.data.unit_name,
@@ -91,8 +97,17 @@ static func run(enemy: Unit, grid_manager: GridManager, all_units: Array[Unit]) 
 	
 	if target.grid_pos in attack_cells:
 		var damage := skill.damage + enemy.data.attack
+		StatusResolverUtil.trigger(enemy, StatusTypeUtil.TriggerTiming.ON_SKILL_USE, {
+			"skill": skill,
+			"target": target
+		})
 		var actual := target.take_damage(damage, enemy, skill.element_type)
 		var applied_effects := SkillEffectResolverUtil.apply_effects_to_target(skill.get_effects(), enemy, target)
+		StatusResolverUtil.trigger(enemy, StatusTypeUtil.TriggerTiming.AFTER_DEAL_DAMAGE, {
+			"skill": skill,
+			"target": target,
+			"hp_damage": actual
+		})
 		var log_parts: Array[String] = [
 			"%s 使用 %s -> %s" % [
 				enemy.data.unit_name,
@@ -334,7 +349,9 @@ static func _estimate_damage(enemy: Unit, target: Unit) -> int:
 	if enemy.data.skills.is_empty():
 		return 0
 	var skill: SkillData = enemy.data.skills[0]
-	var actual: int = max(skill.damage + enemy.data.attack - target.data.defense, 1)
+	var defense_delta := target.get_status_modifier(StatusTypeUtil.StatusId.DEFENSE_MOD)
+	var effective_defense: int = max(target.data.defense + defense_delta, 0)
+	var actual: int = max(skill.damage + enemy.data.attack - effective_defense, 1)
 	actual = TypeChartUtil.apply_damage_multiplier(actual, skill.element_type, target.data.get_element_types())
 	if target.weak_marked:
 		actual = max(int(round(float(actual) * 1.5)), 1)

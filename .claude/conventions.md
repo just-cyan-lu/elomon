@@ -93,7 +93,7 @@ MVP 样板战为了快速迭代，暂时在 `Battle.gd` 中动态创建 `UnitDat
 
 指令卡当前包括高速组件、小型护盾、火力插件、弱点标记、战术换位和属性校准。弱点标记只能选择敌方目标，目标下次受到伤害提高 50%，受击后消耗；战术换位让训练师与目标己方宝可梦交换格子；属性校准只能选择己方宝可梦，使其下一次伤害技能使用训练师当前提取属性结算克制，攻击后消耗。火力插件和属性校准可以叠加，伤害预览和日志必须展示这些修正。
 
-临时状态类型统一由 `core/StatusTypes.gd` 管理，不要在 UI 文案里各自发明持续描述。当前持续类型包括：持续到消耗或移除、下次行动有效、下次攻击有效、下次移动有效、下次受伤有效、释放者下次行动前有效。单位运行时仍保留轻量字段（护盾、下次攻击强化、弱点标记、属性校准、额外移动、移动压制、蓄力预警），但状态条、悬停说明和后续正式 buff 系统都应从 `StatusTypes` 读取 id、短标签、颜色和持续文本。
+临时状态类型统一由 `core/StatusTypes.gd` 管理，不要在 UI 文案里各自发明持续描述。当前持续类型包括：持续到消耗或移除、下次行动有效、下次攻击有效、下次移动有效、下次受伤有效、释放者下次行动前有效、固定触发次数。状态还需要声明分类（状态/印记）、是否可驱散、触发时机和叠加规则。单位运行时仍保留轻量字段（护盾、下次攻击强化、弱点标记、属性校准、额外移动、移动压制、蓄力预警），但新接入的数值状态优先使用 `StatusInstance`，状态条、悬停说明和后续正式 buff 系统都应从 `StatusTypes` 读取 id、短标签、颜色和持续文本。
 
 动作预览需要保留结构化数据：`_current_action_preview` / `action_preview_updated(preview)` 包含 actor、技能名、目标格、AP before/after/cost、同步率 before/after/delta 和目标预估。临时 UI 可以只显示 AP 前后变化，但正式预览、行动轴动画和教学提示都应复用这份 preview 数据。
 
@@ -120,13 +120,15 @@ MVP 样板战为了快速迭代，暂时在 `Battle.gd` 中动态创建 `UnitDat
 
 单位脚下同时显示小状态条，用 1-2 字短标签表达关键临时状态，例如护盾、强、弱、校水、移、蓄。状态颜色按 `StatusTypes.Polarity` 区分：增益偏蓝，减益偏红，中性预警偏黄。这个状态条是临时信息密度方案，未来有正式 UI 后仍应保留同一套状态类型数据。
 
-技能附加效果统一写在 `SkillData.effects` 中，单个效果使用 `SkillEffectData` 描述。当前支持 `ADD_STATUS` 和 `AP_DELTA`，后续中毒、降防、加攻、AP回复变化等都应扩展 `SkillEffectData` / `StatusTypes` / `SkillEffectResolver`，不要继续在 `SkillData` 上追加 `poison_turns`、`defense_down`、`attack_up` 这类一次性字段。`move_penalty` 和 `target_ap_delay` 仅为旧 `.tres` 或过渡代码保留兼容。
+技能附加效果统一写在 `SkillData.effects` 中，单个效果使用 `SkillEffectData` 描述。当前支持 `ADD_STATUS` 和 `AP_DELTA`，其中防御变化会生成 `StatusInstance` 并由 `StatusResolver` 在受伤前触发。后续中毒、加攻、AP回复变化等都应扩展 `SkillEffectData` / `StatusTypes` / `StatusInstance` / `StatusResolver`，不要继续在 `SkillData` 上追加 `poison_turns`、`defense_down`、`attack_up` 这类一次性字段。`move_penalty` 和 `target_ap_delay` 仅为旧 `.tres` 或过渡代码保留兼容。
 
 移动压制属于技能型减益，短标签为“缚”。它由 `SkillEffectData.EffectType.ADD_STATUS + StatusTypes.StatusId.MOVE_PENALTY` 产生，降低目标下次行动的移动距离，并在该目标行动结束后清除。不要把移动压制写成永久减速或跳过行动；MVP 只验证“站位被轻度干扰”这件事。
 
 行动条压制属于技能命中效果，由 `SkillEffectData.EffectType.AP_DELTA` 产生，命中存活目标后直接改变目标当前 AP；例如 `value=-20` 表示目标行动条后退 20%。技能说明和日志必须写“目标行动条-20%”，避免和释放者自己的“自身下次行动推后20%”混淆。
 
-异常状态与数值 Buff/Debuff 先通过 `StatusTypes.StatusId` 预留类型：`POISON`、`BURN`、`ATTACK_MOD`、`DEFENSE_MOD`、`AP_REGEN_MOD`。当前 MVP 尚未结算这些状态的持续逻辑；真正接入时需要统一补：预览、实际结算、行动开始/结束触发、状态显示、日志和撤销规则。
+防御变化属于技能型数值减益，短标签为“防-数字”。它由 `SkillEffectData.EffectType.ADD_STATUS + StatusTypes.StatusId.DEFENSE_MOD` 产生，挂为 `StatusInstance`，在目标下次受伤前修改有效防御，并在该次受伤计算中消耗。冰羽兽的冰针当前使用 `防御-3` 作为第一例。预览、日志、状态条和 AI 伤害估算都需要读取同一份状态数据。
+
+异常状态与数值 Buff/Debuff 先通过 `StatusTypes.StatusId` 预留类型：`POISON`、`BURN`、`ATTACK_MOD`、`AP_REGEN_MOD`。中毒不要按传统“每回合固定扣血”实现，优先考虑技能税、层数引爆或易伤资源。真正接入时需要统一补：预览、实际结算、行动开始/结束触发、状态显示、日志和撤销规则。
 
 单位和技能的定位文案分别写在 `UnitData.role_label` / `battle_note` 与 `SkillData.role_label` / `effect_note`。这些字段用于悬停说明和设计基线，不参与结算。技能说明应该描述机制事实，例如“范围 1”“移动-1”“自身下次行动提前 20%”“目标行动条-20%”，不要直接写“适合打 Boss/适合清小怪”这类攻略式提示。
 

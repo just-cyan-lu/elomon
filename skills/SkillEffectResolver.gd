@@ -2,6 +2,7 @@ class_name SkillEffectResolver
 extends RefCounted
 
 const SkillEffectDataUtil = preload("res://skills/SkillEffectData.gd")
+const StatusResolverUtil = preload("res://core/StatusResolver.gd")
 const StatusTypeUtil = preload("res://core/StatusTypes.gd")
 
 static func preview_effect(effect: Resource) -> Dictionary:
@@ -15,10 +16,9 @@ static func preview_effect(effect: Resource) -> Dictionary:
 	}
 	match effect.effect_type:
 		SkillEffectDataUtil.EffectType.ADD_STATUS:
-			metadata["status_id"] = effect.status_id
-			metadata["status_name"] = _get_status_name(effect.status_id)
-			metadata["duration_type"] = effect.duration_type
-			metadata["duration_text"] = StatusTypeUtil.get_duration_text(effect.duration_type)
+			var status_metadata := StatusResolverUtil.preview_status_from_effect(effect)
+			for key in status_metadata:
+				metadata[key] = status_metadata[key]
 			if effect.status_id == StatusTypeUtil.StatusId.MOVE_PENALTY:
 				metadata["move_penalty"] = abs(effect.get_value_int())
 		SkillEffectDataUtil.EffectType.AP_DELTA:
@@ -35,7 +35,10 @@ static func apply_effect_to_target(effect: Resource, source: Unit, target: Unit)
 	metadata["applied"] = false
 	match effect.effect_type:
 		SkillEffectDataUtil.EffectType.ADD_STATUS:
-			metadata["applied"] = _apply_status_effect(effect, target)
+			var status_metadata := _apply_status_effect(effect, source, target)
+			for key in status_metadata:
+				metadata[key] = status_metadata[key]
+			metadata["applied"] = bool(status_metadata.get("applied", false))
 		SkillEffectDataUtil.EffectType.AP_DELTA:
 			var before := target.current_ap
 			target.consume_ap(-effect.value)
@@ -61,13 +64,14 @@ static func preview_effects(effects: Array) -> Array[Dictionary]:
 			previews.append(metadata)
 	return previews
 
-static func _apply_status_effect(effect: Resource, target: Unit) -> bool:
+static func _apply_status_effect(effect: Resource, source: Unit, target: Unit) -> Dictionary:
 	match effect.status_id:
 		StatusTypeUtil.StatusId.MOVE_PENALTY:
 			target.add_move_penalty(abs(effect.get_value_int()))
-			return true
+			return {
+				"applied": true,
+				"badge": "缚",
+				"text": effect.get_summary()
+			}
 		_:
-			return false
-
-static func _get_status_name(status_id: int) -> String:
-	return str(StatusTypeUtil.get_def(status_id).get("name", "状态"))
+			return StatusResolverUtil.apply_status_from_effect(effect, source, target)

@@ -3,7 +3,9 @@
 ## 全局与核心工具（`core/`）
 - `Enums.gd` — 所有共享枚举（`UnitType`、`ElementType`、`TerrainType`、`AIProfile`、`BattleState`、`ActionState`）以及网格/CTB 常量（`GRID_COLS=20`、`GRID_ROWS=20`、`CELL_SIZE=32`、`MAX_AP=100`）。全局以 `Enums.*` 引用。
 - `TypeChart.gd` — 属性倍率表与工具函数，通过 `preload("res://core/TypeChart.gd")` 使用。当前 MVP 使用火、水、草、冰、雷、飞、地 7 属性，克制 2 倍，抵抗 0.5 倍；单位属性列表逐项连乘，未来双属性可自然得到 4 倍克制伤害。
-- `StatusTypes.gd` — 临时状态类型表，统一管理状态 id、正负面、持续时机、短标签、颜色和说明。当前持续时机包含持续到消耗、下次行动、下次攻击、下次移动、下次受伤、释放者下次行动前。
+- `StatusTypes.gd` — 临时状态类型表，统一管理状态 id、状态/印记分类、正负面、可驱散性、触发时机、持续时机、叠加规则、短标签、颜色和说明。当前触发钩子包含行动开始/结束、使用技能、造成/受到伤害前后、移动后等。
+- `StatusInstance.gd` — 单位身上的通用状态实例，记录数值、层数、剩余触发次数、来源单位和叠加方式。
+- `StatusResolver.gd` — 状态触发器，按 `TriggerTiming` 修改上下文并消费状态。当前已接入 `DEFENSE_MOD`：受伤前改变有效防御，下次受伤后消耗。
 - `GameManager.gd` — 目前是空壳，未来的全局状态放这里。
 
 ## 战斗流程（`battle/`）
@@ -47,15 +49,15 @@
 项目视口为 `640×360`。由于 20×20 网格按 `CELL_SIZE=32` 计算为 `640×640`，当前首屏无法显示完整战场；后续计划通过相机滚动查看完整地图。
 
 ## 单位（`units/`）
-- `Unit.gd`（`class_name Unit`）— 运行时状态：`current_hp`、`current_ap`、`grid_pos`、`has_acted`、`has_moved`、护盾、下次攻击强化、弱点标记、属性校准、下次移动加成、下次行动移动压制、上一次攻击者、蓄力预警格。提供 `take_damage()`、`heal()`、护盾、属性伤害倍率与状态消费等战斗接口。视觉表现由代码动态创建的 `ColorRect`、血条、名称 `Label` 和小状态条节点充当（美术资源到位前的占位符）。阵营色固定为我方柔和蓝、敌方柔和红、中立/野生柔和黄，受伤时会闪白并显示短暂伤害数字。
+- `Unit.gd`（`class_name Unit`）— 运行时状态：`current_hp`、`current_ap`、`grid_pos`、`has_acted`、`has_moved`、护盾、下次攻击强化、弱点标记、属性校准、下次移动加成、下次行动移动压制、`status_instances`、上一次攻击者、蓄力预警格。提供 `take_damage()`、`heal()`、护盾、属性伤害倍率与状态消费等战斗接口。通用状态通过 `StatusInstance` 保存，当前防御变化会在受伤前修改有效防御并消耗；旧轻量字段仍保留给既有卡牌和移动压制。视觉表现由代码动态创建的 `ColorRect`、血条、名称 `Label` 和小状态条节点充当（美术资源到位前的占位符）。阵营色固定为我方柔和蓝、敌方柔和红、中立/野生柔和黄，受伤时会闪白并显示短暂伤害数字。
 - `UnitData.gd`（`class_name UnitData`，继承 `Resource`）— 静态数据：属性、定位文案、颜色、技能列表、主元素属性、元素属性列表和 `ai_profile`。`element_type` 保留为主属性兼容字段，`element_types` 用于未来双属性；为空时回退到主属性。旧实例位于 `units/data/tres/`，MVP 样板战当前由 `Battle.gd` 动态生成。`role_label` 和 `battle_note` 只用于悬停说明与设计表达，不参与结算。`max_stability` 字段暂时保留但当前 MVP 不展示也不参与结算。
 - `UnitAI.gd`（`class_name UnitAI`，继承 `RefCounted`）— 无状态静态 AI。`run()` 根据 `UnitData.ai_profile` 调整目标评分权重：猎手型偏低血/斩杀，克制型偏属性克制，守卫型偏最近目标，压制型偏训练师/支援/带增益单位，范围型偏覆盖更多单位。近战会逼近目标，远程会倾向站在射程内而不是贴脸。厚血大怪每隔数次行动可能进入蓄力状态，蓄力目标会优先选择能覆盖更多我方单位的位置，下一次行动结算预警格伤害。AI 不直接操作 UI，而是返回行动日志文本，由 `Battle.gd` 统一展示。
 
 ## 技能（`skills/`）
 - `SkillData.gd`（`class_name SkillData`，继承 `Resource`）— 字段：`skill_name`、`role_label`、`effect_note`、`damage`、`atk_range`、行动条内部结算值 `ap_cost`、元素属性、是否控制技能、`area_radius`、`effect_type` 和 `effects`。MVP 中基础伤害/治疗仍由 `SkillData` 直接描述；附加效果统一放入 `effects: Array[SkillEffectData]`。大部分技能为标准行动 `ap_cost=100`，不显示成本提示；少量快招/重招才显示“自身下次行动提前/推后 X%”。`effect_type=DAMAGE` 表示攻击敌人，`HEAL` 表示治疗友方。`area_radius=0` 表示单体，`>0` 表示目标格周围菱形范围。`move_penalty` 与 `target_ap_delay` 是旧字段兼容层，新增技能不要继续堆类似字段。旧实例位于 `skills/tres/`，MVP 样板战当前由 `Battle.gd` 动态生成。`stability_damage` 字段暂时保留但当前 MVP 不展示也不结算。
-- `SkillEffectData.gd`（`class_name SkillEffectData`，继承 `Resource`）— 技能附加效果数据：`effect_type`、`target_kind`、`value`、`status_id`、`duration_type`、`stack_mode`、`chance`。当前实现了 `ADD_STATUS` 和 `AP_DELTA`：移动压制由 `ADD_STATUS + StatusTypes.MOVE_PENALTY` 表达，行动条压制由 `AP_DELTA` 表达。`DAMAGE`、`HEAL`、`REMOVE_STATUS`、`MOVE_UNIT`、`SWAP`、`SUMMON` 等枚举先保留给后续迁移。
-- `SkillEffectResolver.gd`（`class_name SkillEffectResolver`，继承 `RefCounted`）— 负责把 `SkillEffectData` 转换为预览 metadata、日志文案和实际结算。`Battle.gd` 与 `UnitAI.gd` 都通过它结算命中后的附加效果，避免给具体技能写专属代码。
-- 伤害公式：先计算 `max(skill.damage + unit.attack - target.defense, 1)`，再通过 `TypeChart` 按目标属性列表逐项连乘；若目标有弱点标记，再乘以 1.5；最后扣护盾。属性校准会把本次伤害技能的攻击属性临时替换为训练师当前提取属性。克制为 2 倍，抵抗为 0.5 倍；未来双属性若同时被克制会得到 4 倍。技能说明只显示 `skill.damage`，实际结果交给伤害预览展示。
+- `SkillEffectData.gd`（`class_name SkillEffectData`，继承 `Resource`）— 技能附加效果数据：`effect_type`、`target_kind`、`value`、`status_id`、`duration_type`、`stack_mode`、`stacks`、`max_stacks`、`trigger_count`、`chance`。当前实现了 `ADD_STATUS` 和 `AP_DELTA`：移动压制由 `ADD_STATUS + StatusTypes.MOVE_PENALTY` 表达，防御变化由 `ADD_STATUS + StatusTypes.DEFENSE_MOD` 表达，行动条压制由 `AP_DELTA` 表达。`DAMAGE`、`HEAL`、`REMOVE_STATUS`、`MOVE_UNIT`、`SWAP`、`SUMMON` 等枚举先保留给后续迁移。
+- `SkillEffectResolver.gd`（`class_name SkillEffectResolver`，继承 `RefCounted`）— 负责把 `SkillEffectData` 转换为预览 metadata、日志文案和实际结算。添加状态时会交给 `StatusResolver` 生成或合并 `StatusInstance`；`Battle.gd` 与 `UnitAI.gd` 都通过它结算命中后的附加效果，避免给具体技能写专属代码。
+- 伤害公式：先计算 `effective_defense = max(target.defense + StatusInstance.DEFENSE_MOD, 0)`，再计算 `max(skill.damage + unit.attack - effective_defense, 1)`，然后通过 `TypeChart` 按目标属性列表逐项连乘；若目标有弱点标记，再乘以 1.5；最后扣护盾。属性校准会把本次伤害技能的攻击属性临时替换为训练师当前提取属性。克制为 2 倍，抵抗为 0.5 倍；未来双属性若同时被克制会得到 4 倍。技能说明只显示 `skill.damage`，实际结果交给伤害预览展示。
 - 玩家单位可通过行动菜单使用技能 1 或技能 2；敌方 AI 仍使用单位技能列表中的第一个技能。
 
 ## UI（`ui/`）

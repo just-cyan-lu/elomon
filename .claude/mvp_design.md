@@ -243,13 +243,20 @@ MVP 技能：
 
 当前已接入的效果：
 - `ADD_STATUS`：给目标添加状态，例如移动压制。
+- `ADD_STATUS + DEFENSE_MOD`：给目标添加防御变化状态，例如冰针命中后防御-3，下次受伤前生效并消耗。
 - `AP_DELTA`：改变目标当前行动条，例如霜缚的目标行动条-20%。
 
 已预留但未完整结算的方向：
-- `POISON` / `BURN`：行动后持续伤害。
-- `ATTACK_MOD` / `DEFENSE_MOD`：加攻、降防或类似数值变化。
+- `POISON` / `BURN`：不要做成传统固定回合扣血，优先考虑技能税、层数引爆或易伤资源。
+- `ATTACK_MOD`：加攻或类似数值变化。
 - `AP_REGEN_MOD`：行动条回复速度变化。
 - `REMOVE_STATUS`、`MOVE_UNIT`、`SWAP`、`SUMMON`：后续可迁移指令卡或特殊技能。
+
+状态系统 v1 的数据边界：
+- `StatusTypes` 定义状态/印记分类、正负面、是否可驱散、触发时机、持续时机和叠加规则。
+- `StatusInstance` 记录单位身上的实际状态，包含数值、层数、剩余触发次数和来源。
+- `StatusResolver` 在行动开始/结束、使用技能、造成/受到伤害前后、移动后等钩子处理状态。
+- 当前只实装防御变化这个真实状态，移动压制仍保留旧字段兼容。
 
 新增技能时不要继续在 `SkillData` 上堆 `poison_turns`、`defense_down`、`attack_up` 这类独立字段；应该新增或复用 `SkillEffectData`，并让预览、日志和结算都走 `SkillEffectResolver`。
 
