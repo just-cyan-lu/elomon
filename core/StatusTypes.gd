@@ -8,7 +8,12 @@ enum StatusId {
 	CALIBRATED_ATTACK,
 	BONUS_MOVE,
 	MOVE_PENALTY,
-	CHARGE_WARNING
+	CHARGE_WARNING,
+	POISON,
+	BURN,
+	ATTACK_MOD,
+	DEFENSE_MOD,
+	AP_REGEN_MOD
 }
 
 enum DurationType {
@@ -75,6 +80,41 @@ const DEFS := {
 		"duration_type": DurationType.UNTIL_SOURCE_NEXT_TURN,
 		"polarity": Polarity.NEUTRAL,
 		"description": "释放者下次行动时结算预警范围。"
+	},
+	StatusId.POISON: {
+		"name": "中毒",
+		"short": "毒",
+		"duration_type": DurationType.NEXT_ACTION,
+		"polarity": Polarity.DEBUFF,
+		"description": "行动后受到持续伤害。"
+	},
+	StatusId.BURN: {
+		"name": "灼烧",
+		"short": "灼",
+		"duration_type": DurationType.NEXT_ACTION,
+		"polarity": Polarity.DEBUFF,
+		"description": "行动后受到持续伤害，后续可扩展为降低攻击。"
+	},
+	StatusId.ATTACK_MOD: {
+		"name": "攻击变化",
+		"short": "攻",
+		"duration_type": DurationType.NEXT_ATTACK,
+		"polarity": Polarity.NEUTRAL,
+		"description": "临时改变攻击数值或造成伤害。"
+	},
+	StatusId.DEFENSE_MOD: {
+		"name": "防御变化",
+		"short": "防",
+		"duration_type": DurationType.NEXT_DAMAGE_TAKEN,
+		"polarity": Polarity.NEUTRAL,
+		"description": "临时改变防御数值或承受伤害。"
+	},
+	StatusId.AP_REGEN_MOD: {
+		"name": "AP回复变化",
+		"short": "速",
+		"duration_type": DurationType.NEXT_ACTION,
+		"polarity": Polarity.NEUTRAL,
+		"description": "临时改变行动条回复速度。"
 	}
 }
 

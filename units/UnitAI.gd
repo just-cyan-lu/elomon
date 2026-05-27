@@ -2,6 +2,8 @@ class_name UnitAI
 extends RefCounted   # 不是节点，是纯逻辑类
 
 const TypeChartUtil = preload("res://core/TypeChart.gd")
+const SkillEffectDataUtil = preload("res://skills/SkillEffectData.gd")
+const SkillEffectResolverUtil = preload("res://skills/SkillEffectResolver.gd")
 const CHARGE_ACTION_AP_COST := 100.0
 
 # 执行 AI 行动，返回值用 await 等待（内部有延迟）
@@ -90,6 +92,7 @@ static func run(enemy: Unit, grid_manager: GridManager, all_units: Array[Unit]) 
 	if target.grid_pos in attack_cells:
 		var damage := skill.damage + enemy.data.attack
 		var actual := target.take_damage(damage, enemy, skill.element_type)
+		var applied_effects := SkillEffectResolverUtil.apply_effects_to_target(skill.get_effects(), enemy, target)
 		var log_parts: Array[String] = [
 			"%s 使用 %s -> %s" % [
 				enemy.data.unit_name,
@@ -100,6 +103,7 @@ static func run(enemy: Unit, grid_manager: GridManager, all_units: Array[Unit]) 
 		var relation := _get_element_relation_text(skill.element_type, target.data.get_element_types())
 		if relation != "":
 			log_parts.append(relation)
+		log_parts.append_array(_get_effect_log_texts(applied_effects))
 		log_parts.append("伤害 %d" % actual)
 		if target.current_hp <= 0:
 			log_parts.append(_get_defeat_text(target))
@@ -120,6 +124,9 @@ static func run(enemy: Unit, grid_manager: GridManager, all_units: Array[Unit]) 
 				"target_hp_after": target.current_hp,
 				"type_multiplier": TypeChartUtil.get_damage_multiplier(skill.element_type, target.data.get_element_types()),
 				"type_relation_text": relation,
+				"effects": applied_effects,
+				"target_ap_delay": abs(_get_applied_ap_delta(applied_effects)),
+				"target_ap_delay_percent": _get_applied_ap_delta_percent(applied_effects),
 				"targeting_hint": _get_targeting_hint(enemy, target),
 				"target_defeated": target.current_hp <= 0
 			}, skill.ap_cost),
@@ -550,6 +557,27 @@ static func _join_strings(parts: Array, delimiter: String) -> String:
 			text += delimiter
 		text += str(parts[i])
 	return text
+
+static func _get_effect_log_texts(effects: Array[Dictionary]) -> Array[String]:
+	var result: Array[String] = []
+	for effect in effects:
+		var text := str(effect.get("text", ""))
+		if text != "":
+			result.append(text)
+	return result
+
+static func _get_applied_ap_delta(effects: Array[Dictionary]) -> float:
+	var total := 0.0
+	for effect in effects:
+		if int(effect.get("effect_type", -1)) == SkillEffectDataUtil.EffectType.AP_DELTA:
+			total += float(effect.get("ap_delta", 0.0))
+	return total
+
+static func _get_applied_ap_delta_percent(effects: Array[Dictionary]) -> int:
+	var ap_delta := _get_applied_ap_delta(effects)
+	if is_equal_approx(ap_delta, 0.0):
+		return 0
+	return int(round(abs(ap_delta) / Enums.MAX_AP * 100.0))
 
 static func _find_best_move(enemy: Unit, move_cells: Array[Vector2i], target: Unit, current: Vector2i, skill: SkillData) -> Vector2i:
 	if move_cells.is_empty():

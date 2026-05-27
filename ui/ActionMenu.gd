@@ -40,6 +40,7 @@ var _trainer_group := "cards"
 var _sync_menu_open := false
 var _sync_action_used := false
 var _is_trainer_context := false
+var _recall_available := false
 
 func _ready() -> void:
 	_panel = $PanelContainer
@@ -195,6 +196,10 @@ func set_context(is_trainer_context: bool) -> void:
 		_sync_menu_open = false
 	_sync_context_visibility()
 
+func set_recall_available(available: bool) -> void:
+	_recall_available = available
+	_sync_context_visibility()
+
 func set_sync_action_used(used: bool) -> void:
 	_sync_action_used = used
 	if _sync_action_used:
@@ -227,7 +232,7 @@ func _sync_context_visibility() -> void:
 		if button != null:
 			button.visible = _is_trainer_context and _sync_menu_open and not _sync_action_used
 	if _btn_recall != null:
-		_btn_recall.visible = _is_trainer_context and _sync_menu_open and not _sync_action_used and _trainer_group == "cards"
+		_btn_recall.visible = _recall_available
 	for card_id in _card_buttons:
 		_card_buttons[card_id].visible = _is_trainer_context and _sync_menu_open and not _sync_action_used and _trainer_group == "cards"
 	for summon_id in _summon_buttons:

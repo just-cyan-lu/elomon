@@ -5,10 +5,12 @@ signal action_preview_updated(preview: Dictionary)
 
 const TypeChartUtil = preload("res://core/TypeChart.gd")
 const StatusTypeUtil = preload("res://core/StatusTypes.gd")
+const SkillEffectDataUtil = preload("res://skills/SkillEffectData.gd")
+const SkillEffectResolverUtil = preload("res://skills/SkillEffectResolver.gd")
 const CARD_RANGE := 3
 const SUMMON_BASE_COST := 100
 const SUMMON_COST_STEP := 60
-const RECALL_COST := 10
+const RECALL_REFUND := 50
 const EXTRACT_COST := 100
 const BATTLE_LOG_LIMIT := 80
 const RESOURCE_EVENT_LIMIT := 120
@@ -78,6 +80,7 @@ var _trainer_disabled: bool = false
 var _all_units: Array[Unit] = []
 var _pokemon_roster: Dictionary = {}
 var _reserve_units: Dictionary = {}
+var _reserve_hp_by_name: Dictionary = {}
 var _trainer_extract_id: String = ""
 
 var _sync_points: int = 100
@@ -128,6 +131,7 @@ var _enemy_threat_visible: bool = false
 var _turn_start_pos: Vector2i = Vector2i(-1, -1)
 var _turn_start_snapshot := {}
 var _turn_has_support_action: bool = false
+var _turn_has_recall_action: bool = false
 var _turn_ap_cost: float = NO_SKILL_AP_COST
 var _extract_undo_available: bool = false
 var _extract_undo_snapshot := {}
@@ -608,7 +612,7 @@ func _spawn_units() -> void:
 	var spark_skill := _make_skill("电弧", 23, 3, 100, Enums.ElementType.ELECTRIC, 16, false, 0, SkillData.EffectType.DAMAGE, "远程主攻", "雷属性远程单体。")
 	var quick_skill := _make_skill("疾闪", 14, 2, 80, Enums.ElementType.ELECTRIC, 8, false, 0, SkillData.EffectType.DAMAGE, "快招", "轻伤害，行动节奏更快。")
 	var ice_skill := _make_skill("冰针", 24, 3, 100, Enums.ElementType.ICE, 18, false, 0, SkillData.EffectType.DAMAGE, "远程主攻", "冰属性远程单体。")
-	var frost_skill := _make_skill("霜缚", 16, 3, 120, Enums.ElementType.ICE, 24, true, 0, SkillData.EffectType.DAMAGE, "重控", "控制更强，但行动节奏更慢。", 2)
+	var frost_skill := _make_skill("霜缚", 16, 3, 100, Enums.ElementType.ICE, 24, true, 0, SkillData.EffectType.DAMAGE, "重控", "冰属性控制。", 2, 20.0)
 	var blade_skill := _make_skill("数据短刃", 14, 1, 100, Enums.ElementType.NONE, 8, false, 0, SkillData.EffectType.DAMAGE, "自卫", "训练师基础近战。")
 	var fire_bite_skill := _make_skill("火牙", 22, 1, 100, Enums.ElementType.FIRE, 10, false, 0, SkillData.EffectType.DAMAGE, "近战", "火属性近战。")
 	var grass_bite_skill := _make_skill("叶咬", 22, 1, 100, Enums.ElementType.GRASS, 10, false, 0, SkillData.EffectType.DAMAGE, "近战", "草属性近战。")
@@ -620,18 +624,18 @@ func _spawn_units() -> void:
 	var grass_thorn_skill := _make_skill("藤刺", 22, 1, 100, Enums.ElementType.GRASS, 10, false, 0, SkillData.EffectType.DAMAGE, "近战", "草属性近战。")
 	var side_water_skill := _make_skill("水压线", 16, 4, 100, Enums.ElementType.WATER, 8, false, 0, SkillData.EffectType.DAMAGE, "长射程侧翼", "射程更长、伤害较低的水属性远程。")
 	var wing_wind_skill := _make_skill("掠风", 18, 3, 100, Enums.ElementType.FLYING, 10, false, 0, SkillData.EffectType.DAMAGE, "侧翼猎手", "飞属性远程，优先压低血和后排。")
-	var thorn_snare_skill := _make_skill("藤缚刺", 16, 2, 100, Enums.ElementType.GRASS, 10, true, 0, SkillData.EffectType.DAMAGE, "侧翼控制", "草属性中程，命中后移动-1。", 1)
+	var thorn_snare_skill := _make_skill("藤缚刺", 16, 2, 100, Enums.ElementType.GRASS, 10, true, 0, SkillData.EffectType.DAMAGE, "侧翼控制", "草属性中程控制。", 1)
 	
 	var fire_data := _make_unit_data("火狐兽", Enums.UnitType.PLAYER_POKEMON, 105, 18, 5, 58, 4, Color(0.95, 0.42, 0.18), Enums.ElementType.FIRE, [fire_skill, flame_line])
-	_set_unit_content(fire_data, "火系爆发 / 范围", "火花为标准行动；烈焰爆为范围重招，下次行动推后 20%。")
+	_set_unit_content(fire_data, "火系爆发 / 范围", "火花为标准行动；烈焰爆为范围重招，自身下次行动推后 20%。")
 	var grass_data := _make_unit_data("藤藤兽", Enums.UnitType.PLAYER_POKEMON, 95, 15, 5, 48, 4, Color(0.25, 0.75, 0.36), Enums.ElementType.GRASS, [vine_skill, snare_skill])
 	_set_unit_content(grass_data, "草系牵制 / 快控", "藤鞭为标准行动；缠绕为快控，命中后移动-1。")
 	var water_data := _make_unit_data("水跃兽", Enums.UnitType.PLAYER_POKEMON, 88, 13, 4, 52, 4, Color(0.24, 0.58, 0.86), Enums.ElementType.WATER, [water_skill, mend_skill])
 	_set_unit_content(water_data, "水系支援 / 治疗", "水泡为水系远程攻击；水愈回复自己或友方 HP。")
 	var spark_data := _make_unit_data("电花鼠", Enums.UnitType.PLAYER_POKEMON, 76, 16, 3, 68, 5, Color(0.85, 0.78, 0.34), Enums.ElementType.ELECTRIC, [spark_skill, quick_skill])
-	_set_unit_content(spark_data, "雷系高速 / 收割", "电弧为标准远程；疾闪为快招，下次行动提前 20%。")
+	_set_unit_content(spark_data, "雷系高速 / 收割", "电弧为标准远程；疾闪为快招，自身下次行动提前 20%。")
 	var ice_data := _make_unit_data("冰羽兽", Enums.UnitType.PLAYER_POKEMON, 82, 15, 4, 54, 4, Color(0.58, 0.82, 0.92), Enums.ElementType.ICE, [ice_skill, frost_skill])
-	_set_unit_content(ice_data, "冰系压制 / 重控", "冰针为标准远程；霜缚移动-2，下次行动推后 20%。")
+	_set_unit_content(ice_data, "冰系压制 / 重控", "冰针为标准远程；霜缚会让目标移动-2，并使目标行动条后退 20%。")
 	_pokemon_roster.clear()
 	_pokemon_roster["fire"] = fire_data
 	_pokemon_roster["grass"] = grass_data
@@ -639,6 +643,7 @@ func _spawn_units() -> void:
 	_pokemon_roster["electric"] = spark_data
 	_pokemon_roster["ice"] = ice_data
 	_reserve_units.clear()
+	_reserve_hp_by_name.clear()
 	_summon_count = 0
 	
 	var unit_scene := preload("res://units/Unit.tscn")
@@ -812,7 +817,8 @@ func _make_skill(
 	effect_type: int = SkillData.EffectType.DAMAGE,
 	role_label: String = "",
 	effect_note: String = "",
-	move_penalty: int = 0
+	move_penalty: int = 0,
+	target_ap_delay: float = 0.0
 ) -> SkillData:
 	var skill := SkillData.new()
 	skill.skill_name = skill_name
@@ -827,6 +833,15 @@ func _make_skill(
 	skill.area_radius = area_radius
 	skill.effect_type = effect_type
 	skill.move_penalty = move_penalty
+	skill.target_ap_delay = target_ap_delay
+	if move_penalty > 0:
+		skill.effects.append(SkillEffectDataUtil.make_add_status(
+			StatusTypeUtil.StatusId.MOVE_PENALTY,
+			-float(move_penalty),
+			StatusTypeUtil.DurationType.NEXT_ACTION
+		))
+	if target_ap_delay > 0.0:
+		skill.effects.append(SkillEffectDataUtil.make_ap_delta(-target_ap_delay))
 	return skill
 
 func _connect_signals() -> void:
@@ -910,6 +925,7 @@ func _end_turn() -> void:
 	_selected_skill_index = 0
 	_selected_skill_target = Vector2i(-1, -1)
 	_turn_has_support_action = false
+	_turn_has_recall_action = false
 	_turn_ap_cost = NO_SKILL_AP_COST
 	_clear_extract_undo()
 	_move_cells.clear()
@@ -961,7 +977,7 @@ func _on_skill_pressed(skill_index: int) -> void:
 	else:
 		grid_manager.highlight_cells(_attack_cells, GridManager.COLOR_ATTACK)
 	action_menu.hide_menu()
-	var timing_text := _get_action_timing_text(skill.ap_cost)
+	var timing_text := _get_self_action_timing_text(skill.ap_cost)
 	if timing_text != "":
 		_show_tip("选择 %s 的目标。首次点击预览，确认后%s。" % [skill.skill_name, timing_text])
 	else:
@@ -1004,11 +1020,11 @@ func _cancel_current_selection() -> void:
 	and is_instance_valid(_active_unit) \
 	and _active_unit.has_moved \
 	and not _active_unit.has_acted:
-		if _turn_has_support_action:
+		if _turn_has_support_action or _turn_has_recall_action:
 			if _action_state != Enums.ActionState.IDLE:
 				_cancel_to_action_menu("已取消选择。")
 			else:
-				_show_tip("已经使用过提取、卡牌、召唤或回收，本回合不能撤回移动。")
+				_show_tip("已经执行过不可撤销操作，本回合不能撤回移动。")
 			return
 		if _action_state == Enums.ActionState.CONFIRMING_SKILL:
 			_clear_skill_preview()
@@ -1067,10 +1083,21 @@ func _on_summon_pressed(summon_id: String) -> void:
 	_show_tip("选择训练师附近的空格召唤 %s。" % reserve_name)
 
 func _on_recall_pressed() -> void:
-	if not _is_trainer_turn():
-		_show_tip("只有训练师行动时可以回收。")
+	if _battle_state != Enums.BattleState.PLAYER_TURN \
+	or _active_unit == null \
+	or not is_instance_valid(_active_unit):
 		return
-	if not _can_use_sync_action("回收"):
+	if _active_unit.data.unit_type == Enums.UnitType.PLAYER:
+		_start_trainer_recall_selection()
+		return
+	if _is_recallable_pokemon(_active_unit):
+		_recall_active_pokemon()
+		return
+	_show_tip("只有训练师或己方宝可梦行动时可以回收。")
+
+func _start_trainer_recall_selection() -> void:
+	if not _is_trainer_turn():
+		_show_tip("训练师无法执行回收。")
 		return
 	_selected_card_id = "recall"
 	_card_range_cells = _cells_in_range(_trainer.grid_pos, CARD_RANGE)
@@ -1083,7 +1110,7 @@ func _on_recall_pressed() -> void:
 	_action_state = Enums.ActionState.SELECTING_CARD
 	grid_manager.highlight_cells(_card_cells, GridManager.COLOR_MOVE)
 	action_menu.hide_menu()
-	_show_tip("选择训练师附近的己方宝可梦回收，保留当前状态。")
+	_show_tip("选择训练师附近的己方宝可梦回收，返还同步率 %d 并保留当前 HP。" % RECALL_REFUND)
 
 func _on_card_pressed(card_id: String) -> void:
 	if not _is_trainer_turn():
@@ -1175,7 +1202,7 @@ func _on_extract_pressed(extract_id: String) -> void:
 
 func _can_use_sync_action(action_name: String) -> bool:
 	if _turn_has_support_action:
-		_show_tip("本回合已经使用过同步率操作，不能再%s。每个训练师回合只能在指令、提取、召唤或回收中选择 1 次。" % action_name)
+		_show_tip("本回合已经使用过同步率操作，不能再%s。每个训练师回合只能在指令、提取或召唤中选择 1 次。" % action_name)
 		return false
 	return true
 
@@ -1185,7 +1212,7 @@ func _on_cell_clicked(grid_pos: Vector2i) -> void:
 	match _action_state:
 		Enums.ActionState.SELECTING_MOVE:
 			if grid_pos in _move_cells:
-				var can_undo_move := not _turn_has_support_action
+				var can_undo_move := not _turn_has_support_action and not _turn_has_recall_action
 				_clear_extract_undo(true)
 				var from_pos := _active_unit.grid_pos
 				var move_range_available := _active_unit.get_current_move_range()
@@ -1308,7 +1335,7 @@ func _return_to_skill_selection() -> void:
 		grid_manager.highlight_cells(_attack_cells, GridManager.COLOR_MOVE)
 	else:
 		grid_manager.highlight_cells(_attack_cells, GridManager.COLOR_ATTACK)
-	var timing_text := _get_action_timing_text(skill.ap_cost)
+	var timing_text := _get_self_action_timing_text(skill.ap_cost)
 	if timing_text != "":
 		_show_tip("选择 %s 的目标。首次点击预览，确认后%s。" % [skill.skill_name, timing_text])
 	else:
@@ -1331,7 +1358,7 @@ func _execute_skill_preview(attacker: Unit, skill: SkillData, target_pos: Vector
 				],
 				"回复 %d" % actual_heal
 			]
-			var heal_timing_text := _get_action_timing_text(skill.ap_cost)
+			var heal_timing_text := _get_self_action_timing_text(skill.ap_cost)
 			if heal_timing_text != "":
 				log_parts.append(heal_timing_text)
 			_add_battle_log(
@@ -1361,10 +1388,7 @@ func _execute_skill_preview(attacker: Unit, skill: SkillData, target_pos: Vector
 		var calibrated_attack_consumed := attacker.calibrated_attack_type != Enums.ElementType.NONE
 		var actual := target.take_damage(entry["raw_damage"], attacker, attack_type)
 		total_damage += actual
-		var move_penalty_applied := 0
-		if skill.move_penalty > 0 and is_instance_valid(target) and target.is_alive():
-			target.add_move_penalty(skill.move_penalty)
-			move_penalty_applied = skill.move_penalty
+		var applied_effects := _apply_skill_effects_to_target(attacker, skill, target)
 		var log_parts: Array[String] = [
 			"%s 使用 %s -> %s" % [
 				attacker.data.unit_name,
@@ -1379,12 +1403,11 @@ func _execute_skill_preview(attacker: Unit, skill: SkillData, target_pos: Vector
 			log_parts.append("属性校准%s" % TypeChartUtil.get_type_name(attack_type))
 		if weak_mark_consumed:
 			log_parts.append("弱点+50%")
-		if move_penalty_applied > 0:
-			log_parts.append("移动-%d" % move_penalty_applied)
+		log_parts.append_array(_get_effect_log_texts(applied_effects))
 		log_parts.append("伤害 %d" % actual)
 		if target.current_hp <= 0:
 			log_parts.append("%s倒下" % target.data.unit_name)
-		var damage_timing_text := _get_action_timing_text(skill.ap_cost)
+		var damage_timing_text := _get_self_action_timing_text(skill.ap_cost)
 		if damage_timing_text != "":
 			log_parts.append(damage_timing_text)
 		_add_battle_log(
@@ -1405,7 +1428,10 @@ func _execute_skill_preview(attacker: Unit, skill: SkillData, target_pos: Vector
 				"weak_mark_consumed": weak_mark_consumed,
 				"calibrated_attack_consumed": calibrated_attack_consumed,
 				"calibrated_attack_type": attack_type if calibrated_attack_consumed else Enums.ElementType.NONE,
-				"move_penalty": move_penalty_applied,
+				"effects": applied_effects,
+				"move_penalty": _get_applied_move_penalty(applied_effects),
+				"target_ap_delay": abs(_get_applied_ap_delta(applied_effects)),
+				"target_ap_delay_percent": _get_applied_ap_delta_percent(applied_effects),
 				"target_defeated": target.current_hp <= 0
 			}, skill.ap_cost),
 			[_unit_log_ref(attacker), _unit_log_ref(target)]
@@ -1421,6 +1447,60 @@ func _execute_skill_preview(attacker: Unit, skill: SkillData, target_pos: Vector
 			_gain_sync(5, "宝可梦攻击")
 	_show_tip("%s 命中 %d 个目标，共造成 %d 伤害。" % [skill.skill_name, entries.size(), total_damage])
 	_check_battle_over()
+
+func _apply_skill_effects_to_target(attacker: Unit, skill: SkillData, target: Unit) -> Array[Dictionary]:
+	var applied_effects := SkillEffectResolverUtil.apply_effects_to_target(skill.get_effects(), attacker, target)
+	for effect in applied_effects:
+		if int(effect.get("effect_type", -1)) != SkillEffectDataUtil.EffectType.AP_DELTA:
+			continue
+		var ap_delta := float(effect.get("ap_delta", 0.0))
+		if is_equal_approx(ap_delta, 0.0):
+			continue
+		var event_type := "gain" if ap_delta > 0.0 else "spend"
+		_emit_resource_event(
+			event_type,
+			"ap",
+			ap_delta,
+			float(effect.get("ap_before", target.current_ap)),
+			float(effect.get("ap_after", target.current_ap)),
+			"%s命中" % skill.skill_name,
+			attacker,
+			target,
+			{
+				"event_type": "skill_effect_ap_delta",
+				"skill_name": skill.skill_name,
+				"ap_delta": ap_delta,
+				"ap_delta_percent": int(effect.get("ap_delta_percent", 0))
+			}
+		)
+	return applied_effects
+
+func _get_effect_log_texts(effects: Array[Dictionary]) -> Array[String]:
+	var result: Array[String] = []
+	for effect in effects:
+		var text := str(effect.get("text", ""))
+		if text != "":
+			result.append(text)
+	return result
+
+func _get_applied_move_penalty(effects: Array[Dictionary]) -> int:
+	for effect in effects:
+		if int(effect.get("status_id", -1)) == StatusTypeUtil.StatusId.MOVE_PENALTY:
+			return int(effect.get("move_penalty", 0))
+	return 0
+
+func _get_applied_ap_delta(effects: Array[Dictionary]) -> float:
+	var total := 0.0
+	for effect in effects:
+		if int(effect.get("effect_type", -1)) == SkillEffectDataUtil.EffectType.AP_DELTA:
+			total += float(effect.get("ap_delta", 0.0))
+	return total
+
+func _get_applied_ap_delta_percent(effects: Array[Dictionary]) -> int:
+	var ap_delta := _get_applied_ap_delta(effects)
+	if is_equal_approx(ap_delta, 0.0):
+		return 0
+	return int(round(abs(ap_delta) / Enums.MAX_AP * 100.0))
 
 func _resolve_card(grid_pos: Vector2i) -> void:
 	if _selected_card_id == "recall":
@@ -1557,32 +1637,70 @@ func _finish_card(message: String) -> void:
 
 func _resolve_recall(grid_pos: Vector2i) -> void:
 	var target := grid_manager.get_unit_at(grid_pos)
-	if target == null or not target.is_ally() or target.data.unit_type == Enums.UnitType.PLAYER:
+	if not _is_recallable_pokemon(target):
 		_show_tip("只能回收训练师附近的己方宝可梦。")
 		return
-	if _sync_points < RECALL_COST:
-		_show_tip("同步率不足，回收需要 %d。" % RECALL_COST)
-		return
-	_spend_sync(RECALL_COST, "回收", _trainer, target, {"event_type": "recall"})
-	_turn_has_support_action = true
+	_gain_sync(RECALL_REFUND, "回收")
+	_turn_has_recall_action = true
 	_commit_pending_turn_logs()
 	_clear_extract_undo(true)
-	_reserve_units[target.data.unit_name] = target.data
 	var target_name := target.data.unit_name
 	var target_log_data := _unit_log_data(target)
 	var target_log_ref := _unit_log_ref(target)
+	_store_recalled_unit(target)
 	_remove_unit(target, false)
 	_add_battle_log(
-		"%s 回收 %s，消耗同步率 %d。" % [_trainer.data.unit_name, target_name, RECALL_COST],
+		"%s 回收 %s，返还同步率 %d。" % [_trainer.data.unit_name, target_name, RECALL_REFUND],
 		{
 			"event_type": "recall",
 			"actor": _unit_log_data(_trainer),
 			"target": target_log_data,
-			"sync_cost": RECALL_COST
+			"sync_gain": RECALL_REFUND,
+			"preserved_hp": int(target_log_data.get("hp", 0))
 		},
 		[_unit_log_ref(_trainer), target_log_ref]
 	)
-	_finish_card("已回收 %s。" % target_name)
+	_finish_card("已回收 %s，返还同步率 %d。" % [target_name, RECALL_REFUND])
+
+func _recall_active_pokemon() -> void:
+	var target := _active_unit
+	if not _is_recallable_pokemon(target):
+		_show_tip("只有己方宝可梦可以自行回收。")
+		return
+	_commit_pending_turn_logs()
+	_clear_extract_undo(true)
+	_gain_sync(RECALL_REFUND, "回收")
+	var target_name := target.data.unit_name
+	var target_log_data := _unit_log_data(target)
+	var target_log_ref := _unit_log_ref(target)
+	_store_recalled_unit(target)
+	_remove_unit(target, false)
+	_add_battle_log(
+		"%s 回收自身，返还同步率 %d。" % [target_name, RECALL_REFUND],
+		{
+			"event_type": "recall",
+			"actor": target_log_data,
+			"target": target_log_data,
+			"sync_gain": RECALL_REFUND,
+			"preserved_hp": int(target_log_data.get("hp", 0)),
+			"self_recall": true
+		},
+		[target_log_ref]
+	)
+	_active_unit = null
+	_action_state = Enums.ActionState.IDLE
+	_selected_card_id = ""
+	_selected_summon_id = ""
+	_move_cells.clear()
+	_attack_cells.clear()
+	_card_range_cells.clear()
+	_card_cells.clear()
+	_clear_skill_preview()
+	grid_manager.clear_highlights()
+	action_menu.hide_menu()
+	_check_battle_over()
+	if _battle_state != Enums.BattleState.BATTLE_OVER:
+		_end_turn()
 
 func _summon_reserve(grid_pos: Vector2i) -> void:
 	if not SUMMON_DEFS.has(_selected_summon_id):
@@ -1618,10 +1736,14 @@ func _summon_reserve(grid_pos: Vector2i) -> void:
 	_clear_extract_undo(true)
 	var unit_scene := preload("res://units/Unit.tscn")
 	var unit_data: UnitData = _reserve_units[reserve_name]
+	var reserve_hp := _get_reserve_hp(reserve_name)
 	var unit := _spawn_unit(unit_scene, unit_data, grid_pos)
 	ctb_system.add_unit(unit)
 	_reserve_units.erase(reserve_name)
+	_reserve_hp_by_name.erase(reserve_name)
+	unit.current_hp = reserve_hp
 	unit.current_ap = 40
+	unit.refresh_status()
 	_add_battle_log(
 		"%s 召唤 %s 到 %s，消耗同步率 %d。" % [
 			_trainer.data.unit_name,
@@ -1655,6 +1777,28 @@ func _is_trainer_turn() -> bool:
 		and is_instance_valid(_active_unit) \
 		and _active_unit.data.unit_type == Enums.UnitType.PLAYER \
 		and not _trainer_disabled
+
+func _is_recallable_pokemon(unit: Unit) -> bool:
+	return unit != null \
+		and is_instance_valid(unit) \
+		and unit.is_ally() \
+		and unit.is_alive() \
+		and unit.data.unit_type == Enums.UnitType.PLAYER_POKEMON
+
+func _store_recalled_unit(unit: Unit) -> void:
+	if not _is_recallable_pokemon(unit):
+		return
+	var reserve_name := unit.data.unit_name
+	_reserve_units[reserve_name] = unit.data
+	_reserve_hp_by_name[reserve_name] = clamp(unit.current_hp, 1, unit.data.max_hp)
+
+func _get_reserve_hp(reserve_name: String) -> int:
+	if not _reserve_units.has(reserve_name):
+		return 1
+	var unit_data: UnitData = _reserve_units[reserve_name]
+	if _reserve_hp_by_name.has(reserve_name):
+		return clamp(int(_reserve_hp_by_name[reserve_name]), 1, unit_data.max_hp)
+	return unit_data.max_hp
 
 func _apply_trainer_extract(extract_id: String) -> void:
 	if _trainer == null or not is_instance_valid(_trainer) or not EXTRACT_DEFS.has(extract_id):
@@ -1861,6 +2005,23 @@ func _get_action_timing_text(ap_cost: float) -> String:
 		return "下次行动提前%d%%" % percent
 	return "下次行动推后%d%%" % percent
 
+func _get_self_action_timing_text(ap_cost: float) -> String:
+	var timing_text := _get_action_timing_text(ap_cost)
+	if timing_text == "":
+		return ""
+	return "自身" + timing_text
+
+func _get_target_ap_delay_percent(ap_delay: float) -> int:
+	if ap_delay <= 0.0:
+		return 0
+	return int(round(ap_delay / Enums.MAX_AP * 100.0))
+
+func _get_target_ap_delay_text(ap_delay: float) -> String:
+	var percent := _get_target_ap_delay_percent(ap_delay)
+	if percent <= 0:
+		return ""
+	return "目标行动条-%d%%" % percent
+
 func _with_action_timing_metadata(metadata: Dictionary, ap_cost: float) -> Dictionary:
 	var result := metadata.duplicate(true)
 	result["action_ap_cost"] = ap_cost
@@ -1890,7 +2051,7 @@ func _apply_log_ap_cost(log_record: Dictionary) -> void:
 func _has_turn_activity() -> bool:
 	return _active_unit != null \
 		and is_instance_valid(_active_unit) \
-		and (_active_unit.has_moved or _active_unit.has_acted or _turn_has_support_action)
+		and (_active_unit.has_moved or _active_unit.has_acted or _turn_has_support_action or _turn_has_recall_action)
 
 func _update_sync_ui() -> void:
 	if not is_instance_valid(_sync_label):
@@ -2401,6 +2562,7 @@ func _update_action_menu_content() -> void:
 	action_menu.set_card_labels(_build_card_labels())
 	action_menu.set_summon_labels(_build_summon_labels())
 	action_menu.set_extract_labels(_build_extract_labels())
+	action_menu.set_recall_available(_can_show_recall_button())
 	action_menu.set_wait_label("结束" if _has_turn_activity() else "待机")
 	action_menu.set_option_descriptions(_build_action_descriptions())
 	action_menu.set_context_label(_get_action_context_label())
@@ -2410,6 +2572,11 @@ func _get_action_context_label() -> String:
 	if _active_unit == null or not is_instance_valid(_active_unit):
 		return "等待行动"
 	return "轮到 %s" % _active_unit.data.unit_name
+
+func _can_show_recall_button() -> bool:
+	if _active_unit == null or not is_instance_valid(_active_unit):
+		return false
+	return _is_trainer_turn() or _is_recallable_pokemon(_active_unit)
 
 func _build_card_labels() -> Dictionary:
 	var labels := {}
@@ -2460,7 +2627,7 @@ func _build_action_descriptions() -> Dictionary:
 	if _turn_has_support_action:
 		descriptions["group_sync"] = "同步率：本回合已经使用过 1 次同步率操作。若刚提取且尚未行动，可按 Esc 撤销。"
 	else:
-		descriptions["group_sync"] = "同步率：本回合可在指令、提取、召唤或回收中选择 1 次。移动和技能不占用这次机会。"
+		descriptions["group_sync"] = "同步率：本回合可在指令、提取或召唤中选择 1 次。移动、技能和回收不占用这次机会。"
 	descriptions["group_cards"] = "指令：消耗同步率强化、保护、标记弱点、换位或校准属性。本回合与提取、召唤共享 1 次同步率操作。"
 	descriptions["group_summon"] = "召唤：选择一只仍在后备、且没有提供当前同步形态的宝可梦入场。第 %d 次额外召唤消耗 %d；召唤会让对应提取暂时不可用，并占用本回合同步率操作。" % [
 		_summon_count + 1,
@@ -2474,7 +2641,10 @@ func _build_action_descriptions() -> Dictionary:
 			descriptions[key] = _describe_skill(skill)
 		else:
 			descriptions[key] = "这个单位没有技能 %d。" % (i + 1)
-	descriptions["recall"] = "回收：消耗 %d 同步率，收回训练师 %d 格内的己方宝可梦，保留 HP 和 AP 状态。" % [RECALL_COST, CARD_RANGE]
+	if _is_trainer_turn():
+		descriptions["recall"] = "回收：收回训练师 %d 格内的己方宝可梦，返还同步率 %d，保留当前 HP；不占用同步率操作。" % [CARD_RANGE, RECALL_REFUND]
+	else:
+		descriptions["recall"] = "回收：这只宝可梦直接退回后备，返还同步率 %d，保留当前 HP，并结束本次行动。" % RECALL_REFUND
 	for summon_id in SUMMON_DEFS:
 		descriptions["summon_" + summon_id] = _describe_summon(summon_id)
 	for card_id in CARD_DEFS:
@@ -2496,7 +2666,7 @@ func _describe_skill(skill: SkillData) -> String:
 		skill.atk_range,
 		target_text
 	]
-	var timing_text := _get_action_timing_text(skill.ap_cost)
+	var timing_text := _get_self_action_timing_text(skill.ap_cost)
 	if timing_text != "":
 		summary += "；" + timing_text
 	summary += "。"
@@ -2507,8 +2677,10 @@ func _describe_skill(skill: SkillData) -> String:
 		parts.append("技能回复 %d；可选择自己或友方，%s。" % [skill.damage, finish_text])
 	else:
 		parts.append("技能伤害 %d；实际伤害以确认前预览为准，%s。" % [skill.damage, finish_text])
-	if skill.move_penalty > 0:
-		parts.append("命中后目标下次行动移动-%d。" % skill.move_penalty)
+	for effect in skill.get_effects():
+		var effect_text: String = effect.get_summary()
+		if effect_text != "":
+			parts.append("命中后%s。" % effect_text)
 	if skill.effect_note != "":
 		parts.append(skill.effect_note)
 	return _join_strings(parts, "\n")
@@ -2549,6 +2721,11 @@ func _describe_summon(summon_id: String) -> String:
 		status = "%s 不在后备" % reserve_name
 	elif _sync_points < summon_cost:
 		status = "同步率不足"
+	else:
+		var reserve_data: UnitData = _reserve_units[reserve_name]
+		var reserve_hp := _get_reserve_hp(reserve_name)
+		if reserve_hp < reserve_data.max_hp:
+			status = "后备 HP %d/%d" % [reserve_hp, reserve_data.max_hp]
 	return "%s：第 %d 次额外召唤，消耗 %d，同步率当前 %d，自然上限 %d，在训练师 %d 格内召唤。%s\n状态：%s" % [
 		summon_def["name"],
 		_summon_count + 1,
@@ -2654,7 +2831,7 @@ func _is_valid_card_target(card_id: String, target: Unit) -> bool:
 				and target.data.unit_type != Enums.UnitType.PLAYER \
 				and _get_trainer_calibration_type() != Enums.ElementType.NONE
 		"recall":
-			return target.is_ally() and target.data.unit_type != Enums.UnitType.PLAYER
+			return _is_recallable_pokemon(target)
 		_:
 			return false
 
@@ -2797,8 +2974,12 @@ func _build_skill_preview(attacker: Unit, skill: SkillData, target_pos: Vector2i
 			"hp_damage": hp_damage,
 			"attack_type": attack_type
 		}
-		if skill.move_penalty > 0:
-			damage_entry["move_penalty"] = skill.move_penalty
+		var effect_previews := SkillEffectResolverUtil.preview_effects(skill.get_effects())
+		if not effect_previews.is_empty():
+			damage_entry["effects"] = effect_previews
+			damage_entry["move_penalty"] = _get_applied_move_penalty(effect_previews)
+			damage_entry["target_ap_delay"] = abs(_get_applied_ap_delta(effect_previews))
+			damage_entry["target_ap_delay_percent"] = _get_applied_ap_delta_percent(effect_previews)
 		result.append(damage_entry)
 	return result
 
@@ -2826,6 +3007,11 @@ func _build_action_preview(attacker: Unit, skill: SkillData, entries: Array[Dict
 			target_preview["type_multiplier"] = TypeChartUtil.get_damage_multiplier(attack_type, target.data.get_element_types())
 			if entry.has("move_penalty"):
 				target_preview["move_penalty"] = int(entry["move_penalty"])
+			if entry.has("target_ap_delay"):
+				target_preview["target_ap_delay"] = float(entry["target_ap_delay"])
+				target_preview["target_ap_delay_percent"] = int(entry.get("target_ap_delay_percent", _get_target_ap_delay_percent(float(entry["target_ap_delay"]))))
+			if entry.has("effects"):
+				target_preview["effects"] = entry["effects"]
 		targets.append(target_preview)
 	return {
 		"event_type": "skill_action_preview",
@@ -2886,7 +3072,7 @@ func _show_preview_panel(attacker: Unit, skill: SkillData, entries: Array[Dictio
 	var total_damage := 0
 	var lines: Array[String] = []
 	lines.append("%s -> %s" % [attacker.data.unit_name, skill.skill_name])
-	var timing_text := _get_action_timing_text(skill.ap_cost)
+	var timing_text := _get_self_action_timing_text(skill.ap_cost)
 	if timing_text != "":
 		lines.append(timing_text)
 	if skill.area_radius > 0:
@@ -2917,14 +3103,16 @@ func _show_preview_panel(attacker: Unit, skill: SkillData, entries: Array[Dictio
 		var relation := _get_element_relation_text(attack_type, target.data.get_element_types())
 		if relation != "":
 			modifiers.append(relation)
-			if attacker.calibrated_attack_type != Enums.ElementType.NONE:
-				modifiers.append("校" + TypeChartUtil.get_type_name(attack_type))
-			if target.weak_marked:
-				modifiers.append("弱点+50%")
-			if hp_damage == 0 and target.shield > 0:
-				modifiers.append("护盾吸收")
-			if entry.has("move_penalty"):
-				modifiers.append("移-%d" % int(entry["move_penalty"]))
+		if attacker.calibrated_attack_type != Enums.ElementType.NONE:
+			modifiers.append("校" + TypeChartUtil.get_type_name(attack_type))
+		if target.weak_marked:
+			modifiers.append("弱点+50%")
+		if hp_damage == 0 and target.shield > 0:
+			modifiers.append("护盾吸收")
+		if entry.has("move_penalty"):
+			modifiers.append("移-%d" % int(entry["move_penalty"]))
+		if entry.has("target_ap_delay"):
+			modifiers.append("行动-%d%%" % int(entry.get("target_ap_delay_percent", 0)))
 		var modifier_text := ""
 		if not modifiers.is_empty():
 			modifier_text = _join_strings(modifiers, " ") + " "
@@ -2955,6 +3143,8 @@ func _show_preview_markers(entries: Array[Dictionary]) -> void:
 			marker_parts.append("-" + str(entry["hp_damage"]))
 			if entry.has("move_penalty"):
 				marker_parts.append("缚")
+			if entry.has("target_ap_delay"):
+				marker_parts.append("迟%d%%" % int(entry.get("target_ap_delay_percent", 0)))
 			marker.modulate = Color(1.0, 0.82, 0.32, 1.0)
 		marker.text = _join_strings(marker_parts, "\n")
 		marker.position = target.position + Vector2(-18, -42)
